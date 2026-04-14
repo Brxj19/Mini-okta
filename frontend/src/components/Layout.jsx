@@ -61,6 +61,7 @@ export default function Layout() {
   const dropdownRef = useRef(null);
   const notificationsPanelRef = useRef(null);
   const bellButtonRef = useRef(null);
+  const searchDebounceRef = useRef(null);
 
   useEffect(() => {
     const onClick = (event) => {
@@ -114,6 +115,14 @@ export default function Layout() {
   }, [searchParams]);
 
   useEffect(() => {
+    return () => {
+      if (searchDebounceRef.current) {
+        window.clearTimeout(searchDebounceRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     setMobileNavOpen(false);
     setProfileOpen(false);
   }, [location.pathname, location.search]);
@@ -137,10 +146,34 @@ export default function Layout() {
     event.preventDefault();
     const term = searchQuery.trim();
     if (!term) {
-      navigate('/search');
+      navigate('/dashboard');
       return;
     }
     navigate(`/search?q=${encodeURIComponent(term)}`);
+  };
+
+  const clearSearch = () => {
+    if (searchDebounceRef.current) {
+      window.clearTimeout(searchDebounceRef.current);
+    }
+    setSearchQuery('');
+    navigate('/dashboard');
+  };
+
+  const handleSearchChange = (value) => {
+    setSearchQuery(value);
+    if (searchDebounceRef.current) {
+      window.clearTimeout(searchDebounceRef.current);
+    }
+
+    const term = value.trim();
+    if (!term) {
+      return;
+    }
+
+    searchDebounceRef.current = window.setTimeout(() => {
+      navigate(`/search?q=${encodeURIComponent(term)}`);
+    }, 180);
   };
 
   const toggleNotifications = async () => {
@@ -350,11 +383,21 @@ export default function Layout() {
               <form onSubmit={submitSearch}>
                 <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                 <input
-                  className="input-field pl-10"
+                  className="input-field pr-10 pl-10"
                   placeholder="Search users, apps, groups, events"
                   value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
+                  onChange={(event) => handleSearchChange(event.target.value)}
                 />
+                {searchQuery ? (
+                  <button
+                    type="button"
+                    onClick={clearSearch}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 transition-colors hover:text-gray-700"
+                    aria-label="Clear search"
+                  >
+                    <XIcon className="h-4 w-4" />
+                  </button>
+                ) : null}
               </form>
             </div>
 
@@ -410,11 +453,21 @@ export default function Layout() {
             <form onSubmit={submitSearch} className="relative">
               <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <input
-                className="input-field pl-10"
+                className="input-field pr-10 pl-10"
                 placeholder="Search users, apps, groups, events"
                 value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
+                onChange={(event) => handleSearchChange(event.target.value)}
               />
+              {searchQuery ? (
+                <button
+                  type="button"
+                  onClick={clearSearch}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 transition-colors hover:text-gray-700"
+                  aria-label="Clear search"
+                >
+                  <XIcon className="h-4 w-4" />
+                </button>
+              ) : null}
             </form>
           </div>
         </header>

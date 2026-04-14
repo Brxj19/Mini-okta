@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import api from '../api/client';
 import { PRODUCT_NAME, PRODUCT_TAGLINE } from '../branding';
 import CopyButton from '../components/CopyButton';
-import { ProductMark } from '../components/Icons';
+import { ArrowLeftIcon, ProductMark } from '../components/Icons';
 import AuthParticleCanvas from '../components/AuthParticleCanvas';
 
 export default function Login() {
@@ -106,6 +106,16 @@ export default function Login() {
     <div className="auth-cosmos-shell flex min-h-screen items-start justify-center px-4 py-6 sm:py-10 md:items-center">
       <AuthParticleCanvas />
       <div className="relative z-10 w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-[0_20px_48px_rgba(15,23,42,0.08)] sm:p-8">
+        <div className="mb-5">
+          <Link
+            to="/"
+            className="inline-flex items-center gap-2 text-sm font-medium text-gray-600 transition-colors hover:text-gray-900"
+          >
+            <ArrowLeftIcon className="h-4 w-4" />
+            Back to home
+          </Link>
+        </div>
+
         <div className="mb-7 flex items-center gap-3">
           <ProductMark className="h-10 w-10" />
           <div>

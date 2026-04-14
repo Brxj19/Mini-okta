@@ -335,7 +335,7 @@ async def create_billing_checkout_session(
     if not org:
         raise HTTPException(404, detail={"error": "not_found", "error_description": "Organization not found"})
 
-    provider = str((org.settings or {}).get("billing", {}).get("provider") or get_billing_provider_info()["provider"]).strip().lower()
+    provider = str(get_billing_provider_info()["provider"]).strip().lower()
     if provider == "razorpay":
         try:
             next_settings, checkout = await start_razorpay_checkout(

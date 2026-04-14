@@ -423,6 +423,7 @@ def build_plan_status_payload(org: Organization) -> dict[str, Any]:
     org.settings = settings_payload
     billing = settings_payload.get("billing") if isinstance(settings_payload.get("billing"), dict) else {}
     current_plan_code = str(billing.get("current_plan_code") or FREE_PLAN_CODE)
+    active_provider = get_billing_provider_info()["provider"]
 
     return {
         "org_id": org.id,
@@ -435,7 +436,7 @@ def build_plan_status_payload(org: Organization) -> dict[str, Any]:
         "current_plan_code": current_plan_code,
         "current_plan": serialize_plan(current_plan_code),
         "available_plans": get_visible_plan_catalog(),
-        "billing_provider": billing.get("provider") or _payment_provider(),
+        "billing_provider": active_provider,
         "gateway_ready": bool(get_billing_provider_info()["gateway_ready"]),
         "subscription": deepcopy(billing.get("subscription")) if isinstance(billing.get("subscription"), dict) else None,
         "payments": deepcopy(billing.get("payments") or []),
@@ -465,6 +466,7 @@ def _new_checkout_session(
     payload = ensure_billing_state(raw_settings)
     billing = payload.get("billing") if isinstance(payload.get("billing"), dict) else {}
     billing = deepcopy(billing)
+    billing["provider"] = provider
     now = _utcnow()
     pending_checkout = {
         "session_id": secrets.token_urlsafe(18),

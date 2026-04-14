@@ -102,7 +102,7 @@ export default function Home() {
 
             <div className="mt-8 flex flex-col gap-4 sm:flex-row">
               <Link to="/signup" className="landing-primary-cta">Launch the admin experience</Link>
-              <Link to="/login" className="landing-secondary-cta">Use seeded credentials</Link>
+              {/* <Link to="/login" className="landing-secondary-cta">Use seeded credentials</Link> */}
               <a href={developerDocsUrl} target="_blank" rel="noreferrer" className="landing-secondary-cta">Read developer docs</a>
             </div>
 
