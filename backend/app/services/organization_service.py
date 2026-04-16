@@ -1,7 +1,7 @@
 """Organization service: CRUD, suspend, activate, and onboarding."""
 
 from datetime import datetime, timezone
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from typing import Any, Optional
 from uuid import UUID
 
@@ -352,11 +352,28 @@ async def activate_organization(db: AsyncSession, org_id: UUID) -> Optional[Orga
     return org
 
 
+def _build_deleted_organization_slug(org: Organization) -> str:
+    """Create a unique tombstone slug so deleted rows don't block recreation."""
+    original_slug = (org.slug or "organization").strip() or "organization"
+    safe_slug = "".join(ch if ch.isalnum() or ch == "-" else "-" for ch in original_slug.lower()).strip("-")
+    safe_slug = safe_slug or "organization"
+    return f"deleted-{org.id.hex[:12]}-{safe_slug}"
+
+
+def _build_deleted_organization_name(org: Organization) -> str:
+    """Create a unique tombstone name that preserves traceability."""
+    original_name = (org.name or "organization").strip() or "organization"
+    return f"deleted+{org.id.hex}+{quote(original_name, safe='')}@deleted.local"
+
+
 async def soft_delete_organization(db: AsyncSession, org_id: UUID) -> Optional[Organization]:
     """Soft delete: set deleted_at and status='deleted'."""
     org = await get_organization(db, org_id)
     if not org:
         return None
+    org.name = _build_deleted_organization_name(org)
+    org.slug = _build_deleted_organization_slug(org)
+    org.display_name = None
     org.deleted_at = datetime.now(timezone.utc)
     org.status = "deleted"
     org.updated_at = datetime.now(timezone.utc)

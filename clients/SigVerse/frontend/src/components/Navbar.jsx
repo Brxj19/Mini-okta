@@ -1,25 +1,34 @@
 import { useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { logout as logoutApi } from '../services/authService';
+import { logout as logoutApi, logoutFromIdp } from '../services/authService';
 import ConfirmModal from './ConfirmModal';
 import Icon from './Icon';
 
 export default function Navbar() {
   const { user, logout } = useAuth();
-  const navigate = useNavigate();
   const location = useLocation();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
-  const handleLogout = async () => {
-    setShowLogoutConfirm(false);
+  const clearLocalSession = async () => {
     try {
       await logoutApi();
     } catch (error) {
       console.warn('Logout API request failed, clearing local session anyway.', error);
     }
     logout();
-    navigate('/login');
+  };
+
+  const handleLocalLogout = async () => {
+    setShowLogoutConfirm(false);
+    await clearLocalSession();
+  };
+
+  const handleGlobalLogout = async () => {
+    const idToken = localStorage.getItem('jwt_token');
+    setShowLogoutConfirm(false);
+    await clearLocalSession();
+    logoutFromIdp(idToken);
   };
 
   if (!user) return null;
@@ -72,11 +81,13 @@ export default function Navbar() {
       {showLogoutConfirm && (
         <ConfirmModal
           title="Ready to log out?"
-          message="Do you want to end your current session?"
+          message="Sign out of SigVerse only, or sign out of SigVerse and your SigAuth session too."
           cancelLabel="Stay Logged In"
-          confirmLabel="Logout"
+          confirmLabel="Logout from SigVerse"
+          secondaryLabel="Sign out of SigAuth"
           onCancel={() => setShowLogoutConfirm(false)}
-          onConfirm={handleLogout}
+          onConfirm={handleLocalLogout}
+          onSecondary={handleGlobalLogout}
         />
       )}
     </nav>

@@ -44,6 +44,8 @@ async def list_groups(db: AsyncSession, org_id: UUID, limit: int = 25, cursor: O
     # Subquery for member count
     member_count_subq = (
         select(GroupMember.group_id, func.count().label("member_count"))
+        .join(User, User.id == GroupMember.user_id)
+        .where(User.deleted_at.is_(None))
         .group_by(GroupMember.group_id)
         .subquery()
     )
@@ -154,7 +156,8 @@ async def get_group_members(
     count_query = (
         select(func.count())
         .select_from(GroupMember)
-        .where(GroupMember.group_id == group_id)
+        .join(User, User.id == GroupMember.user_id)
+        .where(GroupMember.group_id == group_id, User.deleted_at.is_(None))
     )
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0

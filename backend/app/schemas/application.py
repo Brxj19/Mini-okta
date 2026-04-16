@@ -12,6 +12,7 @@ class ApplicationCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     app_type: str = Field(..., pattern=r"^(web|spa|native|m2m)$")
     redirect_uris: list[str] = Field(default_factory=list)
+    post_logout_redirect_uris: list[str] = Field(default_factory=list)
     allowed_scopes: list[str] = Field(default=["openid", "profile", "email"])
     logo_url: Optional[str] = None
     id_token_lifetime: int = Field(default=3600, ge=300, le=86400)
@@ -22,6 +23,7 @@ class ApplicationCreate(BaseModel):
 class ApplicationUpdate(BaseModel):
     name: Optional[str] = None
     redirect_uris: Optional[list[str]] = None
+    post_logout_redirect_uris: Optional[list[str]] = None
     allowed_scopes: Optional[list[str]] = None
     id_token_lifetime: Optional[int] = Field(default=None, ge=300, le=86400)
     access_token_lifetime: Optional[int] = Field(default=None, ge=300, le=86400)
@@ -36,6 +38,7 @@ class ApplicationResponse(BaseModel):
     client_id: str
     app_type: str
     redirect_uris: list[str]
+    post_logout_redirect_uris: list[str]
     allowed_scopes: list[str]
     logo_url: Optional[str] = None
     status: str

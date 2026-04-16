@@ -18,12 +18,17 @@ from app.models.application import Application
 
 DEFAULT_ALLOWED_ORIGINS = {
     settings.ADMIN_CONSOLE_URL.rstrip("/"),
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
     "http://localhost:4000",
     "http://localhost:4001",
     "http://localhost:4101",
     "http://localhost:5173",
     "http://localhost:5174",
     "http://localhost:5175",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
+    "http://127.0.0.1:5175",
 }
 
 
@@ -142,4 +147,3 @@ class DynamicCORSMiddleware:
 
         if self.allow_credentials:
             headers["Access-Control-Allow-Credentials"] = "true"
-

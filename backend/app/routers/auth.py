@@ -6,6 +6,7 @@ import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import UUID
 
 import redis.asyncio as aioredis
@@ -29,6 +30,7 @@ from app.services.auth_service import (
 )
 from app.services.auth_page_renderer import (
     login_error_page,
+    render_logged_out_page,
     render_authorize_backup_codes_page,
     render_authorize_login_page,
     render_authorize_mfa_page,
@@ -190,6 +192,63 @@ async def _attach_browser_sso_cookie(
         ip_address=request.client.host if request.client else "",
     )
     attach_browser_session_cookie(response, browser_session_id)
+
+
+def _append_state_to_redirect_url(redirect_url: str, state: Optional[str]) -> str:
+    """Append OIDC logout state to a validated redirect URL."""
+    if not state:
+        return redirect_url
+
+    parsed = urlsplit(redirect_url)
+    query_pairs = parse_qsl(parsed.query, keep_blank_values=True)
+    query_pairs.append(("state", state))
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query_pairs), parsed.fragment))
+
+
+def _extract_client_id_from_hint_claims(claims: dict) -> Optional[str]:
+    """Resolve a client_id from standard OIDC token audiences."""
+    audience = claims.get("aud")
+    if isinstance(audience, list):
+        return str(audience[0]) if audience else None
+    if audience:
+        return str(audience)
+    return None
+
+
+async def _resolve_logout_redirect(
+    *,
+    db: AsyncSession,
+    client_id: Optional[str],
+    post_logout_redirect_uri: Optional[str],
+    hint_claims: Optional[dict],
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """Validate logout redirect target against the registered client application."""
+    effective_client_id = client_id or (_extract_client_id_from_hint_claims(hint_claims or {}) if hint_claims else None)
+    if not post_logout_redirect_uri:
+        return None, effective_client_id, None
+    if not effective_client_id:
+        raise HTTPException(
+            400,
+            detail={
+                "error": "invalid_request",
+                "error_description": "client_id or id_token_hint is required when post_logout_redirect_uri is provided",
+            },
+        )
+
+    app = await get_application_by_client_id(db, effective_client_id)
+    if not app or app.status != "active":
+        raise HTTPException(400, detail={"error": "invalid_client", "error_description": "Unknown or inactive client"})
+
+    if post_logout_redirect_uri not in (app.post_logout_redirect_uris or []):
+        raise HTTPException(
+            400,
+            detail={
+                "error": "invalid_post_logout_redirect_uri",
+                "error_description": "post_logout_redirect_uri does not match any registered logout redirect URIs",
+            },
+        )
+
+    return post_logout_redirect_uri, effective_client_id, app.name
 
 
 async def _attempt_authorize_with_browser_session(
@@ -1167,6 +1226,76 @@ async def _handle_client_credentials_grant(db, client_id, client_secret, scope_s
 
 
 # ─── POST /logout ────────────────────────────────────────────────────
+@router.get("/logout")
+async def oidc_logout_endpoint(
+    request: Request,
+    client_id: Optional[str] = Query(None),
+    post_logout_redirect_uri: Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+    id_token_hint: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    """OIDC-style end-session endpoint for browser redirects from client applications."""
+    hint_claims: Optional[dict] = None
+    if id_token_hint:
+        try:
+            hint_claims = verify_token(id_token_hint)
+        except JWTError as exc:
+            raise HTTPException(
+                400,
+                detail={"error": "invalid_token_hint", "error_description": f"id_token_hint is invalid: {str(exc)}"},
+            )
+
+    redirect_url, effective_client_id, client_name = await _resolve_logout_redirect(
+        db=db,
+        client_id=client_id,
+        post_logout_redirect_uri=post_logout_redirect_uri,
+        hint_claims=hint_claims,
+    )
+
+    if hint_claims:
+        hinted_jti = hint_claims.get("jti")
+        hinted_sub = hint_claims.get("sub")
+        hinted_org_id = hint_claims.get("org_id")
+        if hinted_jti:
+            await revoke_token(db, str(hinted_jti), reason="oidc_logout")
+            await redis.delete(f"session:{hinted_jti}")
+        if hinted_sub and hinted_org_id:
+            try:
+                hinted_user_id = UUID(str(hinted_sub))
+                hinted_org_uuid = UUID(str(hinted_org_id))
+            except (TypeError, ValueError):
+                hinted_user_id = None
+                hinted_org_uuid = None
+            if hinted_user_id and hinted_org_uuid:
+                await write_audit_event(
+                    db,
+                    "user.logout",
+                    "user",
+                    str(hinted_user_id),
+                    org_id=hinted_org_uuid,
+                    actor_id=hinted_user_id,
+                    metadata={
+                        "logout_flow": "oidc_end_session",
+                        "client_id": effective_client_id or _extract_client_id_from_hint_claims(hint_claims),
+                    },
+                )
+
+    await revoke_browser_session(redis, read_browser_session_id(request))
+    final_redirect_url = _append_state_to_redirect_url(redirect_url, state)
+    response = HTMLResponse(
+        content=render_logged_out_page(
+            redirect_url=final_redirect_url,
+            client_name=client_name,
+        ),
+        status_code=200,
+    )
+    clear_browser_session_cookie(response)
+    await db.commit()
+    return response
+
+
 @router.post("/logout", status_code=204)
 async def logout_endpoint(
     request: Request,
@@ -1236,6 +1365,7 @@ async def openid_configuration():
         "authorization_endpoint": f"{settings.ISSUER_URL}/api/v1/authorize",
         "token_endpoint": f"{settings.ISSUER_URL}/api/v1/token",
         "userinfo_endpoint": f"{settings.ISSUER_URL}/api/v1/userinfo",
+        "end_session_endpoint": f"{settings.ISSUER_URL}/api/v1/logout",
         "jwks_uri": f"{settings.ISSUER_URL}/api/v1/.well-known/jwks.json",
         "scopes_supported": ["openid", "profile", "email"],
         "response_types_supported": ["code"],

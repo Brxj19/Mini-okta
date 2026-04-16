@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from typing import Any, Optional
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from sqlalchemy import select, func, delete as sa_delete
@@ -17,12 +18,27 @@ from app.utils.crypto_utils import generate_client_id, generate_client_secret, h
 from app.utils.pagination import encode_cursor, decode_cursor, build_pagination_response
 
 
+def _dedupe_uris(values: list[str]) -> list[str]:
+    return list(dict.fromkeys([value for value in values if value]))
+
+
+def _build_default_post_logout_redirect_uris(redirect_uris: list[str]) -> list[str]:
+    candidates: list[str] = []
+    for redirect_uri in redirect_uris or []:
+        candidates.append(redirect_uri)
+        parsed = urlsplit(redirect_uri)
+        if parsed.scheme and parsed.netloc:
+            candidates.append(f"{parsed.scheme}://{parsed.netloc}")
+    return _dedupe_uris(candidates)
+
+
 async def create_application(
     db: AsyncSession,
     org_id: UUID,
     name: str,
     app_type: str,
     redirect_uris: list[str],
+    post_logout_redirect_uris: list[str],
     allowed_scopes: list[str],
     id_token_lifetime: int = 3600,
     access_token_lifetime: int = 3600,
@@ -44,13 +60,19 @@ async def create_application(
         raw_secret = generate_client_secret()
         hashed_secret = hash_password(raw_secret)
 
+    normalized_redirect_uris = _dedupe_uris(redirect_uris)
+    normalized_post_logout_redirect_uris = _dedupe_uris(
+        post_logout_redirect_uris or _build_default_post_logout_redirect_uris(normalized_redirect_uris)
+    )
+
     app = Application(
         org_id=org_id,
         name=name,
         client_id=client_id,
         client_secret=hashed_secret,
         app_type=app_type,
-        redirect_uris=redirect_uris,
+        redirect_uris=normalized_redirect_uris,
+        post_logout_redirect_uris=normalized_post_logout_redirect_uris,
         allowed_scopes=allowed_scopes,
         id_token_lifetime=id_token_lifetime,
         access_token_lifetime=access_token_lifetime,
@@ -71,7 +93,7 @@ async def get_application(db: AsyncSession, app_id: UUID) -> Optional[Applicatio
             selectinload(Application.group_assignments)
             .selectinload(ApplicationGroupAssignment.group)
         )
-        .where(Application.id == app_id)
+        .where(Application.id == app_id, Application.status != "deleted")
     )
     return result.scalar_one_or_none()
 
@@ -89,7 +111,7 @@ async def list_applications(
     cursor: Optional[str] = None,
 ) -> dict[str, Any]:
     """List applications with cursor-based pagination."""
-    query = select(Application).where(Application.org_id == org_id)
+    query = select(Application).where(Application.org_id == org_id, Application.status != "deleted")
 
     if cursor:
         cursor_data = decode_cursor(cursor)
@@ -98,7 +120,11 @@ async def list_applications(
             cursor_created = dt.fromisoformat(cursor_data["created_at"])
             query = query.where(Application.created_at < cursor_created)
 
-    count_query = select(func.count()).select_from(Application).where(Application.org_id == org_id)
+    count_query = (
+        select(func.count())
+        .select_from(Application)
+        .where(Application.org_id == org_id, Application.status != "deleted")
+    )
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
 
@@ -126,6 +152,7 @@ async def update_application(
     app_id: UUID,
     name: Optional[str] = None,
     redirect_uris: Optional[list[str]] = None,
+    post_logout_redirect_uris: Optional[list[str]] = None,
     allowed_scopes: Optional[list[str]] = None,
     id_token_lifetime: Optional[int] = None,
     access_token_lifetime: Optional[int] = None,
@@ -140,7 +167,9 @@ async def update_application(
     if name is not None:
         app.name = name
     if redirect_uris is not None:
-        app.redirect_uris = redirect_uris
+        app.redirect_uris = _dedupe_uris(redirect_uris)
+    if post_logout_redirect_uris is not None:
+        app.post_logout_redirect_uris = _dedupe_uris(post_logout_redirect_uris)
     if allowed_scopes is not None:
         app.allowed_scopes = allowed_scopes
     if id_token_lifetime is not None:

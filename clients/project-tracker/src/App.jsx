@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 const IDP_URL = 'http://localhost:8000';
 const CLIENT_ID = 'project-tracker-client-id';
 const REDIRECT_URI = 'http://localhost:4001/callback';
+const POST_LOGOUT_REDIRECT_URI = 'http://localhost:4001';
 
 function generateCodeVerifier() {
   const arr = new Uint8Array(32);
@@ -129,6 +130,14 @@ export default function App() {
     setToken(null);
     setUserInfo(null);
     sessionStorage.removeItem('pt_token');
+    const params = new URLSearchParams({
+      client_id: CLIENT_ID,
+      post_logout_redirect_uri: POST_LOGOUT_REDIRECT_URI,
+    });
+    if (token) {
+      params.set('id_token_hint', token);
+    }
+    window.location.href = `${IDP_URL}/api/v1/logout?${params.toString()}`;
   };
 
   const cardStyle = { background: 'rgba(30,41,59,0.7)', border: '1px solid rgba(71,85,105,0.5)', borderRadius: '16px', padding: '32px', backdropFilter: 'blur(10px)' };

@@ -39,9 +39,9 @@ app = FastAPI(
 )
 
 # ─── Middleware ────────────────────────────────────────────────────────
-app.add_middleware(DynamicCORSMiddleware)
 app.add_middleware(AuditMiddleware)
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(DynamicCORSMiddleware)
 
 # ─── Register Routers ─────────────────────────────────────────────────
 app.include_router(auth.router)

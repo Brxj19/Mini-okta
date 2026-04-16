@@ -15,6 +15,7 @@ function normalizeApplicationForm(app) {
     name: app.name || '',
     logo_url: app.logo_url || '',
     redirect_uris: app.redirect_uris || [],
+    post_logout_redirect_uris: app.post_logout_redirect_uris || [],
     allowed_scopes: app.allowed_scopes || DEFAULT_SCOPES,
     id_token_lifetime: app.id_token_lifetime || 3600,
     access_token_lifetime: app.access_token_lifetime || 3600,
@@ -41,6 +42,7 @@ export default function ApplicationDetail() {
   const [configError, setConfigError] = useState('');
   const [isEditingConfig, setIsEditingConfig] = useState(false);
   const [redirectInput, setRedirectInput] = useState('');
+  const [postLogoutRedirectInput, setPostLogoutRedirectInput] = useState('');
   const [scopeInput, setScopeInput] = useState('');
   const [permissionMessage, setPermissionMessage] = useState('');
 
@@ -244,6 +246,40 @@ export default function ApplicationDetail() {
     );
   };
 
+  const addPostLogoutRedirectUri = () => {
+    if (!isEditingConfig) return;
+    const value = postLogoutRedirectInput.trim();
+    if (!value) return;
+
+    try {
+      const parsed = new URL(value);
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        setConfigError('Post-logout redirect URI must use http or https.');
+        return;
+      }
+    } catch {
+      setConfigError('Post-logout redirect URI must be a valid URL.');
+      return;
+    }
+
+    if (configForm.post_logout_redirect_uris.includes(value)) {
+      setConfigError('Post-logout redirect URI already added.');
+      return;
+    }
+
+    updateConfigField('post_logout_redirect_uris', [...configForm.post_logout_redirect_uris, value]);
+    setPostLogoutRedirectInput('');
+    setConfigError('');
+  };
+
+  const removePostLogoutRedirectUri = (uri) => {
+    if (!isEditingConfig) return;
+    updateConfigField(
+      'post_logout_redirect_uris',
+      configForm.post_logout_redirect_uris.filter(current => current !== uri)
+    );
+  };
+
   const addScope = (rawScope = scopeInput) => {
     if (!isEditingConfig) return;
     const value = rawScope.trim();
@@ -281,6 +317,7 @@ export default function ApplicationDetail() {
     setPermissionMessage('');
     setConfigForm(normalizeApplicationForm(app));
     setRedirectInput('');
+    setPostLogoutRedirectInput('');
     setScopeInput('');
     setIsEditingConfig(true);
   };
@@ -290,6 +327,7 @@ export default function ApplicationDetail() {
     setPermissionMessage('');
     setConfigForm(normalizeApplicationForm(app));
     setRedirectInput('');
+    setPostLogoutRedirectInput('');
     setScopeInput('');
     setIsEditingConfig(false);
   };
@@ -306,6 +344,7 @@ export default function ApplicationDetail() {
         name: configForm.name,
         logo_url: configForm.logo_url || null,
         redirect_uris: configForm.redirect_uris,
+        post_logout_redirect_uris: configForm.post_logout_redirect_uris,
         allowed_scopes: configForm.allowed_scopes,
         id_token_lifetime: Number(configForm.id_token_lifetime),
         access_token_lifetime: Number(configForm.access_token_lifetime),
@@ -446,6 +485,43 @@ export default function ApplicationDetail() {
                   ))}
                   {configForm.redirect_uris.length === 0 && (
                     <p className="text-xs text-slate-500">No redirect URIs added.</p>
+                  )}
+                </div>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-slate-500 uppercase">Post-Logout Redirect URIs</dt>
+              <dd className="mt-1">
+                <div className="flex gap-2">
+                  <input
+                    value={postLogoutRedirectInput}
+                    onChange={e => setPostLogoutRedirectInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addPostLogoutRedirectUri();
+                      }
+                    }}
+                    className="input-field font-mono text-xs"
+                    placeholder="https://app.example.com/logged-out"
+                    disabled={!isEditingConfig || !canUpdateApp}
+                  />
+                  <button type="button" onClick={addPostLogoutRedirectUri} className={`btn-secondary ${canUpdateApp ? '' : 'cursor-not-allowed opacity-55'}`} disabled={!isEditingConfig || !canUpdateApp}>Add</button>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {configForm.post_logout_redirect_uris.map(uri => (
+                    <div key={uri} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                      <span className="font-mono text-xs text-slate-700 break-all">{uri}</span>
+                      <div className="flex items-center gap-2">
+                        <CopyButton value={uri} label="Copy post-logout redirect URI" />
+                        <button type="button" onClick={() => removePostLogoutRedirectUri(uri)} className="text-red-700 hover:text-red-800" disabled={!isEditingConfig || !canUpdateApp}>
+                          <XIcon className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {configForm.post_logout_redirect_uris.length === 0 && (
+                    <p className="text-xs text-slate-500">No post-logout redirect URIs added.</p>
                   )}
                 </div>
               </dd>

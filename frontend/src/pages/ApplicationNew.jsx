@@ -9,6 +9,7 @@ export default function ApplicationNew() {
   const navigate = useNavigate();
   const [form, setForm] = useState({
     name: '', app_type: 'web', redirect_uris: '', allowed_scopes: 'openid,profile,email',
+    post_logout_redirect_uris: '',
     id_token_lifetime: 3600, access_token_lifetime: 3600, refresh_token_enabled: false, logo_url: '',
   });
   const [error, setError] = useState('');
@@ -23,6 +24,7 @@ export default function ApplicationNew() {
       const payload = {
         ...form,
         redirect_uris: form.redirect_uris.split(',').map(s => s.trim()).filter(Boolean),
+        post_logout_redirect_uris: form.post_logout_redirect_uris.split(',').map(s => s.trim()).filter(Boolean),
         allowed_scopes: form.allowed_scopes.split(',').map(s => s.trim()).filter(Boolean),
       };
       const res = await api.post(`/api/v1/organizations/${orgId}/applications`, payload);
@@ -90,6 +92,16 @@ export default function ApplicationNew() {
           <label className="block text-sm font-medium text-dark-300 mb-1">Redirect URIs *</label>
           <input required value={form.redirect_uris} onChange={e => setForm(f => ({ ...f, redirect_uris: e.target.value }))} className="input-field" placeholder="http://localhost:4000/callback" />
           <p className="text-xs text-dark-500 mt-1">Comma-separated list of allowed callback URLs</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-dark-300 mb-1">Post-Logout Redirect URIs</label>
+          <input
+            value={form.post_logout_redirect_uris}
+            onChange={e => setForm(f => ({ ...f, post_logout_redirect_uris: e.target.value }))}
+            className="input-field"
+            placeholder="http://localhost:4000, http://localhost:4000/logged-out"
+          />
+          <p className="text-xs text-dark-500 mt-1">Comma-separated list of safe URLs SigAuth can redirect to after IdP logout.</p>
         </div>
         <div>
           <label className="block text-sm font-medium text-dark-300 mb-1">Scopes</label>

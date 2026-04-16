@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.dependencies import get_db
-from app.routers import applications, notifications, organizations
+from app.routers import applications, auth, notifications, organizations
 
 
 def _find_route_dependency(router, path, method, dependency_index=0):
@@ -213,6 +213,54 @@ class ApiEndpointTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["unread_count"], 1)
         self.assertEqual(payload["data"][0]["title"], "Something happened")
+
+    def test_oidc_logout_endpoint_renders_post_logout_redirect_page(self):
+        fake_db = SimpleNamespace(commit=AsyncMock())
+        fake_redis = AsyncMock()
+        user_id = uuid4()
+        org_id = uuid4()
+        application = SimpleNamespace(
+            status="active",
+            name="Project Tracker",
+            post_logout_redirect_uris=["http://localhost:4001"],
+        )
+
+        app = FastAPI()
+        app.include_router(auth.router)
+
+        async def override_db():
+            return fake_db
+
+        async def override_redis():
+            return fake_redis
+
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[auth.get_db] = override_db
+        app.dependency_overrides[auth.get_redis] = override_redis
+        client = TestClient(app)
+
+        with patch("app.routers.auth.verify_token", return_value={
+            "aud": "project-tracker-client-id",
+            "jti": "logout-token-jti",
+            "sub": str(user_id),
+            "org_id": str(org_id),
+        }), \
+             patch("app.routers.auth.get_application_by_client_id", AsyncMock(return_value=application)), \
+             patch("app.routers.auth.revoke_token", AsyncMock()), \
+             patch("app.routers.auth.revoke_browser_session", AsyncMock()), \
+             patch("app.routers.auth.write_audit_event", AsyncMock()):
+            response = client.get(
+                "/api/v1/logout",
+                params={
+                    "id_token_hint": "fake-id-token",
+                    "post_logout_redirect_uri": "http://localhost:4001",
+                    "state": "logout-state",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("You have been signed out", response.text)
+        self.assertIn("http://localhost:4001?state=logout-state", response.text)
 
 
 if __name__ == "__main__":

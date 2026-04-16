@@ -6,8 +6,10 @@ export default function ConfirmModal({
   message = 'This action cannot be undone.',
   onCancel,
   onConfirm,
+  onSecondary,
   confirmLabel = 'Confirm',
-  cancelLabel = 'Cancel'
+  cancelLabel = 'Cancel',
+  secondaryLabel = ''
 }) {
   const titleId = useId();
 
@@ -52,6 +54,11 @@ export default function ConfirmModal({
           <button type="button" className="btn btn-ghost" onClick={onCancel}>
             {cancelLabel}
           </button>
+          {secondaryLabel && onSecondary ? (
+            <button type="button" className="btn btn-secondary" onClick={onSecondary}>
+              {secondaryLabel}
+            </button>
+          ) : null}
           <button type="button" className="btn btn-primary" onClick={onConfirm}>
             {confirmLabel}
           </button>

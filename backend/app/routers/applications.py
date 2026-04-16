@@ -83,7 +83,7 @@ async def create_app(
             )
 
     app, raw_secret = await create_application(
-        db, org_id, body.name, body.app_type, body.redirect_uris,
+        db, org_id, body.name, body.app_type, body.redirect_uris, body.post_logout_redirect_uris,
         body.allowed_scopes, body.id_token_lifetime, body.access_token_lifetime,
         body.refresh_token_enabled, body.logo_url,
     )
@@ -163,7 +163,7 @@ async def update_app(
             )
 
     app = await update_application(
-        db, app_id, body.name, body.redirect_uris, body.allowed_scopes,
+        db, app_id, body.name, body.redirect_uris, body.post_logout_redirect_uris, body.allowed_scopes,
         body.id_token_lifetime, body.access_token_lifetime, body.refresh_token_enabled, body.logo_url,
     )
     if not app:

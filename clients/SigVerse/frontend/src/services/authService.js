@@ -78,16 +78,15 @@ export async function exchangeIdpCode({ code, state }) {
   return data;
 }
 
-export async function logoutFromIdp(token) {
-  if (!token) return;
-  try {
-    await fetch(`${IDP_URL}/api/v1/logout`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    });
-  } catch {}
+export function logoutFromIdp(idToken) {
+  const params = new URLSearchParams({
+    client_id: IDP_CLIENT_ID,
+    post_logout_redirect_uri: window.location.origin,
+  });
+  if (idToken) {
+    params.set('id_token_hint', idToken);
+  }
+  window.location.assign(`${IDP_URL}/api/v1/logout?${params.toString()}`);
 }
 
 export const loginWithEmail = (data) => api.post('/auth/login', data);

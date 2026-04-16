@@ -136,6 +136,47 @@ def render_authorize_transition_page(*, redirect_url: str, auth_state: dict) -> 
 </html>"""
 
 
+def render_logged_out_page(*, redirect_url: Optional[str] = None, client_name: Optional[str] = None) -> str:
+    safe_product_logo_url = html.escape(f"{settings.ADMIN_CONSOLE_URL.rstrip('/')}/logo.png")
+    safe_client_name = html.escape(client_name or "your application")
+    continue_markup = ""
+    script_markup = ""
+    if redirect_url:
+        safe_redirect_url = html.escape(redirect_url, quote=True)
+        continue_markup = f"""
+            <p class="transition-note">You can close this window, or continue back to {safe_client_name}.</p>
+            <form method="GET" action="{safe_redirect_url}" style="margin-top:18px;">
+                <button type="submit">Continue to {safe_client_name}</button>
+            </form>
+        """
+        script_markup = f"""
+    <script>
+      window.setTimeout(() => {{
+        window.location.href = {json.dumps(redirect_url)};
+      }}, 1200);
+    </script>"""
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Signed out</title>
+    <style>{_authorize_brand_styles()}</style>
+</head>
+<body>
+    <main class="transition-shell">
+        <div class="transition-logo">
+            <img src="{safe_product_logo_url}" alt="{html.escape(PRODUCT_NAME)} logo" />
+        </div>
+        <h1>You have been signed out</h1>
+        <p>{html.escape(PRODUCT_NAME)} has ended your browser session. The next time you sign in from a client app, you will be asked to authenticate again.</p>
+        {continue_markup}
+    </main>{script_markup}
+</body>
+</html>"""
+
+
 def render_authorize_mfa_page(
     *,
     state: str,

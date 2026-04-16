@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone, timedelta
 import secrets
+from urllib.parse import quote
 from typing import Any, Optional
 from uuid import UUID
 
@@ -15,6 +16,12 @@ from app.models.role import Role
 from app.utils.crypto_utils import hash_password, validate_password_policy
 from app.utils.pagination import encode_cursor, decode_cursor, build_pagination_response
 from app.config import settings
+
+
+def _build_deleted_user_email(user: User) -> str:
+    """Replace deleted user email with a tombstone value so the original can be reused."""
+    original_email = (user.email or "user").strip() or "user"
+    return f"deleted+{user.id.hex}+{quote(original_email, safe='')}@deleted.local"
 
 
 async def create_user(
@@ -246,6 +253,15 @@ async def soft_delete_user(db: AsyncSession, user_id: UUID) -> Optional[User]:
     user = await get_user(db, user_id)
     if not user:
         return None
+    user.email = _build_deleted_user_email(user)
+    user.status = "deleted"
+    user.email_verified = False
+    user.must_change_password = False
+    user.invitation_expires_at = None
+    user.mfa_enabled = False
+    user.mfa_secret = None
+    user.mfa_recovery_codes = None
+    user.mfa_recovery_codes_generated_at = None
     user.deleted_at = datetime.now(timezone.utc)
     user.updated_at = datetime.now(timezone.utc)
     await db.flush()

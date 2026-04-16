@@ -21,6 +21,10 @@ load_dotenv()
 
 DEFAULT_CLIENT_ID = "GfRUxhhDZeKl1b6IoatrdMQdlCEsRQEY"
 DEFAULT_REDIRECT_URI = "http://localhost:5173/auth/callback"
+DEFAULT_POST_LOGOUT_REDIRECTS = [
+    "http://localhost:5173",
+    "http://localhost:5173/login",
+]
 DEFAULT_PASSWORD = "Test@1234"
 
 
@@ -89,6 +93,14 @@ async def seed_sigverse():
         try:
             client_id = os.getenv("SIGVERSE_CLIENT_ID", DEFAULT_CLIENT_ID)
             redirect_uri = os.getenv("SIGVERSE_REDIRECT_URI", DEFAULT_REDIRECT_URI)
+            post_logout_redirect_uris = [
+                item.strip()
+                for item in os.getenv(
+                    "SIGVERSE_POST_LOGOUT_REDIRECT_URIS",
+                    ",".join(DEFAULT_POST_LOGOUT_REDIRECTS),
+                ).split(",")
+                if item.strip()
+            ]
             demo_password = os.getenv("SIGVERSE_DEMO_PASSWORD", DEFAULT_PASSWORD)
 
             app_result = await db.execute(
@@ -122,6 +134,7 @@ async def seed_sigverse():
                     client_secret=None,
                     app_type="spa",
                     redirect_uris=[redirect_uri],
+                    post_logout_redirect_uris=post_logout_redirect_uris,
                     allowed_scopes=["openid", "profile", "email"],
                     id_token_lifetime=3600,
                     access_token_lifetime=3600,
@@ -135,6 +148,11 @@ async def seed_sigverse():
                 changed = False
                 if redirect_uri not in (app.redirect_uris or []):
                     app.redirect_uris = [*(app.redirect_uris or []), redirect_uri]
+                    changed = True
+                current_post_logout_redirects = list(app.post_logout_redirect_uris or [])
+                merged_post_logout_redirects = list(dict.fromkeys([*current_post_logout_redirects, *post_logout_redirect_uris]))
+                if merged_post_logout_redirects != current_post_logout_redirects:
+                    app.post_logout_redirect_uris = merged_post_logout_redirects
                     changed = True
                 required_scopes = {"openid", "profile", "email"}
                 current_scopes = set(app.allowed_scopes or [])
@@ -199,6 +217,7 @@ async def seed_sigverse():
             print("\nSigVerse IdP configuration is ready:")
             print(f"  client_id: {client_id}")
             print(f"  redirect_uri: {redirect_uri}")
+            print(f"  post_logout_redirect_uris: {', '.join(post_logout_redirect_uris)}")
             print("  users:")
             print("    sigverse.admin@gmail.com")
             print("    sigverse.instructor@gmail.com")

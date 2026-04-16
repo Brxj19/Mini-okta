@@ -194,6 +194,7 @@ async def seed():
                 client_secret=hash_password("hr-portal-secret"),
                 app_type="web",
                 redirect_uris=["http://localhost:4000/callback"],
+                post_logout_redirect_uris=["http://localhost:4000", "http://localhost:4000/logged-out"],
                 allowed_scopes=["openid", "profile", "email"],
                 id_token_lifetime=3600,
                 access_token_lifetime=3600,
@@ -208,6 +209,7 @@ async def seed():
                 client_secret=None,  # SPA — no secret
                 app_type="spa",
                 redirect_uris=["http://localhost:4001/callback"],
+                post_logout_redirect_uris=["http://localhost:4001", "http://localhost:4001/logged-out"],
                 allowed_scopes=["openid", "profile", "email"],
                 id_token_lifetime=3600,
                 access_token_lifetime=3600,

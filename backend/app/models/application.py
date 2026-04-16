@@ -19,6 +19,7 @@ class Application(Base):
     client_secret = Column(Text, nullable=True)  # bcrypt hashed; NULL for spa/native
     app_type = Column(Text, nullable=False, default="web")  # web | spa | native | m2m
     redirect_uris = Column(ARRAY(Text), nullable=False, default=list)
+    post_logout_redirect_uris = Column(ARRAY(Text), nullable=False, default=list)
     allowed_scopes = Column(ARRAY(Text), nullable=False, default=lambda: ["openid", "profile", "email"])
     logo_url = Column(Text, nullable=True)
     status = Column(Text, nullable=False, default="active")

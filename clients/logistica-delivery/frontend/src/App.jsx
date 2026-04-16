@@ -101,17 +101,15 @@ async function fetchSession(token) {
   return payload.user;
 }
 
-async function logoutFromIdp(token) {
-  if (!token) return;
-  try {
-    await fetch(`${IDP_URL}/api/v1/logout`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    });
-  } catch {}
+function logoutFromIdp(idToken) {
+  const params = new URLSearchParams({
+    client_id: IDP_CLIENT_ID,
+    post_logout_redirect_uri: window.location.origin,
+  });
+  if (idToken) {
+    params.set('id_token_hint', idToken);
+  }
+  window.location.assign(`${IDP_URL}/api/v1/logout?${params.toString()}`);
 }
 
 const ROLE_CONTENT = {
@@ -424,7 +422,6 @@ export default function App() {
       setUser(nextUser);
     },
     async logout(globalLogout = false) {
-      const activeAccessToken = token || readStoredToken();
       const activeIdToken = idToken || localStorage.getItem(ID_TOKEN_STORAGE_KEY);
       localStorage.removeItem(ID_TOKEN_STORAGE_KEY);
       localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
@@ -432,11 +429,12 @@ export default function App() {
       setToken(null);
       setUser(null);
       if (globalLogout) {
-        await logoutFromIdp(activeAccessToken || activeIdToken);
+        logoutFromIdp(activeIdToken);
+        return;
       }
       navigate('/', { replace: true });
     }
-  }), [idToken, navigate, token]);
+  }), [idToken, navigate]);
 
   if (!ready) {
     return (
