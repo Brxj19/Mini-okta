@@ -20,6 +20,13 @@ FREE_PLAN_CODE = "free"
 LEGACY_ENTERPRISE_PLAN_CODE = "enterprise_manual"
 PAID_PLAN_CODES = ("go", "plus", "pro")
 SUPPORTED_PAYMENT_METHODS = {"upi", "card"}
+PLAN_RANK = {
+    FREE_PLAN_CODE: 0,
+    "go": 1,
+    "plus": 2,
+    "pro": 3,
+    LEGACY_ENTERPRISE_PLAN_CODE: 4,
+}
 
 PLAN_CATALOG: dict[str, dict[str, Any]] = {
     "free": {
@@ -110,6 +117,11 @@ def _parse_iso(value: Optional[str]) -> Optional[datetime]:
 def _payment_provider() -> str:
     provider = str(settings.PAYMENTS_PROVIDER or "demo").strip().lower()
     return provider if provider in {"demo", "razorpay"} else "demo"
+
+
+def _plan_rank(plan_code: str | None) -> int:
+    normalized = str(plan_code or "").strip().lower()
+    return PLAN_RANK.get(normalized, 0)
 
 
 def _get_notification_marks(billing: dict[str, Any]) -> dict[str, list[str]]:
@@ -424,6 +436,16 @@ def build_plan_status_payload(org: Organization) -> dict[str, Any]:
     billing = settings_payload.get("billing") if isinstance(settings_payload.get("billing"), dict) else {}
     current_plan_code = str(billing.get("current_plan_code") or FREE_PLAN_CODE)
     active_provider = get_billing_provider_info()["provider"]
+    subscription = deepcopy(billing.get("subscription")) if isinstance(billing.get("subscription"), dict) else None
+    renewal_available = False
+    renewal_available_at = None
+    if subscription and str(subscription.get("plan_code")) in PAID_PLAN_CODES:
+        renewal_available_at = subscription.get("current_period_end")
+        period_end = _parse_iso(subscription.get("current_period_end"))
+        if str(subscription.get("status")) != "active":
+            renewal_available = True
+        elif period_end and period_end <= _utcnow():
+            renewal_available = True
 
     return {
         "org_id": org.id,
@@ -438,9 +460,12 @@ def build_plan_status_payload(org: Organization) -> dict[str, Any]:
         "available_plans": get_visible_plan_catalog(),
         "billing_provider": active_provider,
         "gateway_ready": bool(get_billing_provider_info()["gateway_ready"]),
-        "subscription": deepcopy(billing.get("subscription")) if isinstance(billing.get("subscription"), dict) else None,
+        "subscription": subscription,
         "payments": deepcopy(billing.get("payments") or []),
         "last_paid_plan_code": billing.get("last_paid_plan_code"),
+        "current_plan_rank": _plan_rank(current_plan_code),
+        "renewal_available": renewal_available,
+        "renewal_available_at": renewal_available_at,
     }
 
 
@@ -466,8 +491,17 @@ def _new_checkout_session(
     payload = ensure_billing_state(raw_settings)
     billing = payload.get("billing") if isinstance(payload.get("billing"), dict) else {}
     billing = deepcopy(billing)
-    billing["provider"] = provider
+    subscription = billing.get("subscription") if isinstance(billing.get("subscription"), dict) else None
     now = _utcnow()
+    if (
+        subscription
+        and str(subscription.get("status")) == "active"
+        and str(subscription.get("plan_code")) == plan["code"]
+    ):
+        period_end = _parse_iso(subscription.get("current_period_end"))
+        if period_end and period_end > now:
+            raise ValueError("Renewal becomes available only after the current billing period ends.")
+    billing["provider"] = provider
     pending_checkout = {
         "session_id": secrets.token_urlsafe(18),
         "provider": provider,

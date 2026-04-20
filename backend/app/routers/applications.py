@@ -18,7 +18,7 @@ from app.schemas.application import (
 )
 from app.services.application_service import (
     create_application, get_application, list_applications,
-    update_application, rotate_secret, disable_application, delete_application,
+    update_application, rotate_secret, disable_application, enable_application, delete_application,
     list_application_groups, assign_groups_to_application, remove_group_from_application,
     list_application_role_mappings, create_application_role_mapping, delete_application_role_mapping,
     list_group_users,
@@ -85,7 +85,7 @@ async def create_app(
     app, raw_secret = await create_application(
         db, org_id, body.name, body.app_type, body.redirect_uris, body.post_logout_redirect_uris,
         body.allowed_scopes, body.id_token_lifetime, body.access_token_lifetime,
-        body.refresh_token_enabled, body.logo_url,
+        body.refresh_token_enabled, body.require_explicit_role_mappings, body.logo_url,
     )
 
     await write_audit_event(
@@ -164,7 +164,7 @@ async def update_app(
 
     app = await update_application(
         db, app_id, body.name, body.redirect_uris, body.post_logout_redirect_uris, body.allowed_scopes,
-        body.id_token_lifetime, body.access_token_lifetime, body.refresh_token_enabled, body.logo_url,
+        body.id_token_lifetime, body.access_token_lifetime, body.refresh_token_enabled, body.require_explicit_role_mappings, body.logo_url,
     )
     if not app:
         raise HTTPException(404, detail={"error": "not_found", "error_description": "Application not found"})
@@ -227,6 +227,28 @@ async def disable_app(
         actor_user_id=current_user["user_id"],
         title="Application disabled",
         message=f"{current_user.get('email', 'An admin')} disabled application '{app.name}'.",
+    )
+    return ApplicationResponse.model_validate(app)
+
+
+@router.post("/{app_id}/enable", response_model=ApplicationResponse)
+async def enable_app(
+    org_id: UUID,
+    app_id: UUID,
+    current_user: dict = Depends(require_permission("app:update")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-enable a disabled application."""
+    await _get_org_application_or_404(db, org_id, app_id)
+    app = await enable_application(db, app_id)
+    if not app:
+        raise HTTPException(404, detail={"error": "not_found", "error_description": "Application not found"})
+    await send_admin_activity_notification(
+        db=db,
+        org_id=org_id,
+        actor_user_id=current_user["user_id"],
+        title="Application enabled",
+        message=f"{current_user.get('email', 'An admin')} enabled application '{app.name}'.",
     )
     return ApplicationResponse.model_validate(app)
 

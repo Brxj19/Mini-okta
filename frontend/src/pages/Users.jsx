@@ -88,12 +88,19 @@ export default function Users() {
         eyebrow="Users"
         title="User Directory"
         description="Create, update, and monitor identities. Most actions are reachable within one click from this table."
-        actions={canCreateUsers ? (
-          <Link to="/users/new" className="btn-primary">
-            <PlusIcon className="h-4 w-4" />
-            Add user
-          </Link>
-        ) : null}
+        actions={
+          canCreateUsers ? (
+            <Link to="/users/new" className="btn-primary">
+              <PlusIcon className="h-4 w-4" />
+              Add user
+            </Link>
+          ) : (
+            <button type="button" className="btn-primary cursor-not-allowed opacity-55" disabled>
+              <PlusIcon className="h-4 w-4" />
+              Add user
+            </button>
+          )
+        }
       />
 
       <div className="mb-5 flex flex-col gap-3 sm:flex-row">

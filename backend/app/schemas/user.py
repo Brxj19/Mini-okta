@@ -63,6 +63,15 @@ class CurrentUserProfileResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class CurrentSessionResponse(BaseModel):
+    user_id: UUID
+    email: str
+    org_id: UUID
+    is_super_admin: bool = False
+    roles: list[str] = Field(default_factory=list)
+    permissions: list[str] = Field(default_factory=list)
+
+
 class UserListResponse(BaseModel):
     data: list[UserResponse]
     pagination: dict[str, Any]

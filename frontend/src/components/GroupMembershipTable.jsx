@@ -3,6 +3,7 @@ import api from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import UserAvatar from './UserAvatar';
 import { PlusIcon, SearchIcon, XIcon } from './Icons';
+import ConfirmDialog from './ConfirmDialog';
 import { getDisplayName } from '../utils/profile';
 
 export default function GroupMembershipTable({ groupId, allowManageMembers = true, blockedMessage = '' }) {
@@ -15,6 +16,7 @@ export default function GroupMembershipTable({ groupId, allowManageMembers = tru
   const [loading, setLoading] = useState(false);
   const [showAddPanel, setShowAddPanel] = useState(false);
   const [error, setError] = useState('');
+  const [pendingRemoval, setPendingRemoval] = useState(null);
 
   const fetchMembers = async (loadMore = false) => {
     if (!orgId || !groupId) return;
@@ -62,7 +64,6 @@ export default function GroupMembershipTable({ groupId, allowManageMembers = tru
   };
 
   const removeMember = async (userId) => {
-    if (!confirm('Remove this member?')) return;
     try {
       await api.delete(`/api/v1/organizations/${orgId}/groups/${groupId}/members/${userId}`);
       fetchMembers();
@@ -177,7 +178,7 @@ export default function GroupMembershipTable({ groupId, allowManageMembers = tru
                 </td>
                 <td className="py-3 px-4 text-right">
                   {allowManageMembers ? (
-                    <button onClick={() => removeMember(m.id)} className="text-sm font-medium text-red-700 hover:text-red-800">Remove</button>
+                    <button onClick={() => setPendingRemoval(m)} className="text-sm font-medium text-red-700 hover:text-red-800">Remove</button>
                   ) : null}
                 </td>
               </tr>
@@ -196,6 +197,19 @@ export default function GroupMembershipTable({ groupId, allowManageMembers = tru
           </button>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!pendingRemoval}
+        title="Remove member from group?"
+        description={pendingRemoval ? `${pendingRemoval.email} will be removed from this group.` : ''}
+        confirmLabel="Remove member"
+        onClose={() => setPendingRemoval(null)}
+        onConfirm={async () => {
+          const user = pendingRemoval;
+          setPendingRemoval(null);
+          if (user) await removeMember(user.id);
+        }}
+      />
     </div>
   );
 }

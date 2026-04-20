@@ -10,7 +10,7 @@ export default function ApplicationNew() {
   const [form, setForm] = useState({
     name: '', app_type: 'web', redirect_uris: '', allowed_scopes: 'openid,profile,email',
     post_logout_redirect_uris: '',
-    id_token_lifetime: 3600, access_token_lifetime: 3600, refresh_token_enabled: false, logo_url: '',
+    id_token_lifetime: 3600, access_token_lifetime: 3600, refresh_token_enabled: false, require_explicit_role_mappings: false, logo_url: '',
   });
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
@@ -131,6 +131,11 @@ export default function ApplicationNew() {
           <input type="checkbox" checked={form.refresh_token_enabled} onChange={e => setForm(f => ({ ...f, refresh_token_enabled: e.target.checked }))} className="w-4 h-4 rounded border-dark-500 bg-dark-700 text-primary-500" />
           <span className="text-sm text-dark-300">Enable Refresh Tokens</span>
         </label>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={form.require_explicit_role_mappings} onChange={e => setForm(f => ({ ...f, require_explicit_role_mappings: e.target.checked }))} className="w-4 h-4 rounded border-dark-500 bg-dark-700 text-primary-500" />
+          <span className="text-sm text-dark-300">Require explicit app role mappings</span>
+        </label>
+        <p className="text-xs text-dark-500 -mt-3">Enable this for role-based client apps. Leave it off for apps that only need authentication and application access.</p>
         <button type="submit" disabled={loading} className="btn-primary">{loading ? 'Creating...' : 'Register Application'}</button>
       </form>
     </div>

@@ -56,37 +56,23 @@ export async function exchangeIdpCode({ code, state }) {
     throw new Error('State mismatch');
   }
 
-  const formData = new URLSearchParams();
-  formData.set('grant_type', 'authorization_code');
-  formData.set('code', code);
-  formData.set('redirect_uri', IDP_REDIRECT_URI);
-  formData.set('client_id', IDP_CLIENT_ID);
-  if (codeVerifier) formData.set('code_verifier', codeVerifier);
-
-  const response = await fetch(`${IDP_URL}/api/v1/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: formData
+  const response = await api.post('/auth/idp/exchange', {
+    code,
+    codeVerifier,
   });
-  const data = await response.json();
-  if (!response.ok || !data.id_token) {
-    throw new Error(data.error_description || 'Token exchange failed');
-  }
 
   sessionStorage.removeItem('sigverse_oauth_state');
   sessionStorage.removeItem('sigverse_code_verifier');
-  return data;
+  return response.data?.data;
 }
 
-export function logoutFromIdp(idToken) {
-  const params = new URLSearchParams({
-    client_id: IDP_CLIENT_ID,
-    post_logout_redirect_uri: window.location.origin,
-  });
-  if (idToken) {
-    params.set('id_token_hint', idToken);
+export async function logoutFromIdp() {
+  const response = await api.get('/auth/logout-url');
+  const logoutUrl = response.data?.data?.logoutUrl;
+  if (!logoutUrl) {
+    throw new Error('Unable to resolve SigAuth logout URL');
   }
-  window.location.assign(`${IDP_URL}/api/v1/logout?${params.toString()}`);
+  window.location.assign(logoutUrl);
 }
 
 export const loginWithEmail = (data) => api.post('/auth/login', data);

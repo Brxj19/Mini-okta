@@ -1,83 +1,102 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import api from '../api/client';
 import {
   LOGOUT_SYNC_KEY,
   clearStoredAuth,
   getStoredActiveOrgId,
-  getStoredToken,
   readRememberBrowserPreference,
   storeActiveOrgId,
-  storeAuthToken,
   syncRememberBrowserPreference,
 } from '../utils/authStorage';
 
 const AuthContext = createContext(null);
 
-function parseJwt(token) {
-  try {
-    const base64Url = token.split('.')[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const payload = decodeURIComponent(
-      atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
-    );
-    return JSON.parse(payload);
-  } catch { return null; }
-}
-
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => getStoredToken());
-  const [claims, setClaims] = useState(() => {
-    const t = getStoredToken();
-    return t ? parseJwt(t) : null;
-  });
+  const [claims, setClaims] = useState(null);
   const [profile, setProfile] = useState(null);
-  const [profileLoading, setProfileLoading] = useState(() => !!getStoredToken());
-  const [orgId, setOrgId] = useState(() => {
-    const t = getStoredToken();
-    const c = t ? parseJwt(t) : null;
-    if (!c) return null;
-    if (c.is_super_admin) return getStoredActiveOrgId() || c.org_id || null;
-    return c.org_id || null;
-  });
+  const [authLoading, setAuthLoading] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [orgId, setOrgId] = useState(null);
   const [rememberBrowser, setRememberBrowser] = useState(() => readRememberBrowserPreference());
 
   const clearAuthState = useCallback(() => {
-    setToken(null);
     setClaims(null);
     setProfile(null);
     setProfileLoading(false);
     setOrgId(null);
+    setAuthLoading(false);
     clearStoredAuth();
   }, []);
 
-  const login = useCallback((newToken, options = {}) => {
-    const parsed = parseJwt(newToken);
-    const nextRememberBrowser = options.rememberBrowser ?? readRememberBrowserPreference();
-    const nextOrgId = parsed?.is_super_admin
-      ? getStoredActiveOrgId() || parsed?.org_id || null
-      : parsed?.org_id || null;
-
-    setToken(newToken);
-    setClaims(parsed);
-    setProfile(null);
+  const refreshSession = useCallback(async () => {
+    setAuthLoading(true);
     setProfileLoading(true);
-    setOrgId(nextOrgId);
-    setRememberBrowser(nextRememberBrowser);
-    storeAuthToken(newToken, nextRememberBrowser);
-    if (parsed?.is_super_admin && nextOrgId) {
-      storeActiveOrgId(nextOrgId, nextRememberBrowser);
-    } else {
-      storeActiveOrgId(null, nextRememberBrowser);
+
+    try {
+      const [contextRes, profileRes] = await Promise.all([
+        api.get('/api/v1/me/context'),
+        api.get('/api/v1/me/profile'),
+      ]);
+
+      const nextClaims = {
+        sub: contextRes.data?.user_id,
+        email: contextRes.data?.email,
+        org_id: contextRes.data?.org_id,
+        is_super_admin: !!contextRes.data?.is_super_admin,
+        roles: contextRes.data?.roles || [],
+        permissions: contextRes.data?.permissions || [],
+      };
+
+      setClaims(nextClaims);
+      setProfile(profileRes.data || null);
+
+      const nextOrgId = nextClaims.is_super_admin
+        ? getStoredActiveOrgId() || nextClaims.org_id || null
+        : nextClaims.org_id || null;
+
+      setOrgId(nextOrgId);
+      return nextClaims;
+    } catch (error) {
+      if (error?.response?.status === 401) {
+        clearAuthState();
+        return null;
+      }
+      throw error;
+    } finally {
+      setAuthLoading(false);
+      setProfileLoading(false);
     }
-  }, []);
+  }, [clearAuthState]);
+
+  const login = useCallback(async () => {
+    await refreshSession();
+  }, [refreshSession]);
 
   const logout = useCallback(async () => {
     try {
-      if (token) await api.post('/api/v1/logout');
+      await api.post('/api/v1/logout');
     } catch {}
     clearAuthState();
-    localStorage.setItem(LOGOUT_SYNC_KEY, String(Date.now()));
-  }, [clearAuthState, token]);
+    window.localStorage.setItem(LOGOUT_SYNC_KEY, String(Date.now()));
+  }, [clearAuthState]);
+
+  const refreshProfile = useCallback(async () => {
+    if (!claims) {
+      setProfile(null);
+      setProfileLoading(false);
+      return null;
+    }
+
+    setProfileLoading(true);
+    try {
+      const res = await api.get('/api/v1/me/profile');
+      const nextProfile = res.data || null;
+      setProfile(nextProfile);
+      return nextProfile;
+    } finally {
+      setProfileLoading(false);
+    }
+  }, [claims]);
 
   const updateOrgId = useCallback((nextOrgId) => {
     if (claims?.is_super_admin) {
@@ -93,77 +112,16 @@ export function AuthProvider({ children }) {
     const nextValue = Boolean(enabled);
     syncRememberBrowserPreference(nextValue);
     setRememberBrowser(nextValue);
-  }, []);
-
-  const refreshProfile = useCallback(async () => {
-    if (!token) {
-      setProfile(null);
-      setProfileLoading(false);
-      return null;
+    if (claims?.is_super_admin) {
+      storeActiveOrgId(orgId, nextValue);
     }
-
-    setProfileLoading(true);
-    try {
-      const res = await api.get('/api/v1/me/profile');
-      const nextProfile = res.data || null;
-      setProfile(nextProfile);
-      return nextProfile;
-    } finally {
-      setProfileLoading(false);
-    }
-  }, [token]);
-
-  // Auto-logout 60 seconds before token expiry
-  useEffect(() => {
-    if (!claims?.exp) return;
-    const expiresIn = claims.exp * 1000 - Date.now() - 60000;
-    if (expiresIn <= 0) { logout(); return; }
-    const timer = setTimeout(logout, expiresIn);
-    return () => clearTimeout(timer);
-  }, [claims, logout]);
+  }, [claims, orgId]);
 
   useEffect(() => {
-    if (!claims) return;
-    if (claims.is_super_admin) {
-      const storedOrgId = getStoredActiveOrgId();
-      if (storedOrgId && storedOrgId !== orgId) setOrgId(storedOrgId);
-      return;
-    }
-
-    storeActiveOrgId(null, rememberBrowser);
-    if (claims.org_id !== orgId) setOrgId(claims.org_id || null);
-  }, [claims, orgId, rememberBrowser]);
-
-  useEffect(() => {
-    let active = true;
-
-    if (!token) {
-      setProfile(null);
-      setProfileLoading(false);
-      return () => {
-        active = false;
-      };
-    }
-
-    setProfileLoading(true);
-    api.get('/api/v1/me/profile')
-      .then((res) => {
-        if (!active) return;
-        setProfile(res.data || null);
-      })
-      .catch(() => {
-        if (!active) return;
-        setProfile(null);
-      })
-      .finally(() => {
-        if (!active) return;
-        setProfileLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [token]);
+    refreshSession().catch(() => {
+      clearAuthState();
+    });
+  }, [refreshSession, clearAuthState]);
 
   useEffect(() => {
     const handleStorage = (event) => {
@@ -179,20 +137,21 @@ export function AuthProvider({ children }) {
   }, [clearAuthState]);
 
   const value = {
-    token,
     claims,
     profile,
+    authLoading,
     profileLoading,
     orgId,
     setOrgId: updateOrgId,
     login,
     logout,
     refreshProfile,
+    refreshSession,
     setProfile,
     rememberBrowser,
     setRememberBrowserPreference: updateRememberBrowserPreference,
     isSuperAdmin: !!claims?.is_super_admin,
-    isAuthenticated: !!token && !!claims,
+    isAuthenticated: !!claims,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

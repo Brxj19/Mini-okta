@@ -45,12 +45,19 @@ export default function Groups() {
         eyebrow="Directory Groups"
         title="Groups"
         description="Manage membership-based access controls and review how identities are organized across the current tenant."
-        actions={canCreateGroups ? (
-          <Link to="/groups/new" className="btn-primary">
-            <PlusIcon className="h-4 w-4" />
-            Create group
-          </Link>
-        ) : null}
+        actions={
+          canCreateGroups ? (
+            <Link to="/groups/new" className="btn-primary">
+              <PlusIcon className="h-4 w-4" />
+              Create group
+            </Link>
+          ) : (
+            <button type="button" className="btn-primary cursor-not-allowed opacity-55" disabled>
+              <PlusIcon className="h-4 w-4" />
+              Create group
+            </button>
+          )
+        }
       />
 
       <div className="mb-6 card">

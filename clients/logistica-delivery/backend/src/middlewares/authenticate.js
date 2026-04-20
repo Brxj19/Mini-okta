@@ -1,33 +1,31 @@
-const { deriveClientRole, verifyIdpToken } = require('../utils/idpAuth');
+const { readSessionFromRequest } = require('../../../../shared/sessionAuth');
 
-function extractBearerToken(header = '') {
-  if (!header.startsWith('Bearer ')) return null;
-  return header.slice('Bearer '.length).trim();
-}
+const SESSION_COOKIE_NAME = process.env.APP_SESSION_COOKIE_NAME || 'logistica_session';
+const SESSION_SECRET = process.env.APP_SESSION_SECRET || 'logistica-dev-session-secret';
 
 function authenticateRequest(req, res, next) {
-  try {
-    const token = extractBearerToken(req.headers.authorization || '');
+  const session = readSessionFromRequest(req, {
+    secret: SESSION_SECRET,
+    cookieName: SESSION_COOKIE_NAME,
+  });
 
-    if (!token) {
-      const err = new Error('Missing bearer token');
-      err.status = 401;
-      throw err;
-    }
-
-    const claims = verifyIdpToken(token);
-    req.user = claims;
-    req.clientRole = deriveClientRole(claims);
-    next();
-  } catch (error) {
-    const status = error.status || 401;
-    res.status(status).json({
-      error: error.message || 'Unauthorized'
+  if (!session?.user) {
+    return res.status(401).json({
+      error: 'Unauthorized',
     });
   }
+
+  if (!session.user.clientRole) {
+    return res.status(403).json({
+      error: 'No recognized application role is attached to this session.',
+    });
+  }
+
+  req.user = session.user;
+  req.clientRole = session.user.clientRole;
+  next();
 }
 
 module.exports = {
-  authenticateRequest
+  authenticateRequest,
 };
-

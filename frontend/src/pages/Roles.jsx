@@ -6,6 +6,7 @@ import PermissionCheckbox from '../components/PermissionCheckbox';
 import PageHeader from '../components/PageHeader';
 import { PlusIcon } from '../components/Icons';
 import { hasPermission as userHasPermission } from '../utils/permissions';
+import { pushToast } from '../utils/toastBus';
 
 export default function Roles() {
   const { orgId, claims } = useAuth();
@@ -61,15 +62,16 @@ export default function Roles() {
       setEditingId(null);
       setForm({ name: '', description: '', permissions: [] });
       fetchRoles();
-    } catch (err) {
-      alert(err.response?.data?.detail?.error_description || 'Update failed');
-    }
+    } catch {}
     setCreating(false);
   };
 
   const startEdit = (role) => {
     if (!canUpdateRoles) return;
-    if (role.is_system) { alert('System roles cannot be edited'); return; }
+    if (role.is_system) {
+      pushToast({ type: 'info', title: 'Role locked', message: 'System roles cannot be edited.' });
+      return;
+    }
     setEditingId(role.id);
     setForm({ name: role.name, description: role.description || '', permissions: role.permissions || [] });
     setShowCreate(false);
@@ -83,12 +85,19 @@ export default function Roles() {
         eyebrow="Authorization Model"
         title="Roles"
         description="Manage system and custom roles, then assign them through groups to keep permissions consistent."
-        actions={canCreateRoles ? (
-          <button onClick={() => { setShowCreate(true); setEditingId(null); setForm({ name: '', description: '', permissions: [] }); }} className="btn-primary">
-            <PlusIcon className="h-4 w-4" />
-            Create role
-          </button>
-        ) : null}
+        actions={
+          canCreateRoles ? (
+            <button onClick={() => { setShowCreate(true); setEditingId(null); setForm({ name: '', description: '', permissions: [] }); }} className="btn-primary">
+              <PlusIcon className="h-4 w-4" />
+              Create role
+            </button>
+          ) : (
+            <button type="button" className="btn-primary cursor-not-allowed opacity-55" disabled>
+              <PlusIcon className="h-4 w-4" />
+              Create role
+            </button>
+          )
+        }
       />
 
       {(canCreateRoles || canUpdateRoles) && (showCreate || editingId) && (

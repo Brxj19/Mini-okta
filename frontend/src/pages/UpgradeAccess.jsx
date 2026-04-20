@@ -39,6 +39,16 @@ function formatPlanName(planCode) {
     .join(' ');
 }
 
+function getPlanRank(planCode) {
+  return {
+    free: 0,
+    go: 1,
+    plus: 2,
+    pro: 3,
+    enterprise_manual: 4,
+  }[planCode] || 0;
+}
+
 export default function UpgradeAccess() {
   const { orgId, claims, isSuperAdmin } = useAuth();
   const isOrgAdmin = hasRole(claims, 'org:admin');
@@ -148,7 +158,7 @@ export default function UpgradeAccess() {
       const res = await api.post(`/api/v1/organizations/${orgId}/billing/checkout-session`, {
         plan_code: planCode,
         payment_method: paymentMethod,
-      });
+      }, { skipToast: true, skipErrorToast: true });
 
       setPlanStatus(res.data.plan_status);
       const checkout = res.data.checkout || {};
@@ -253,6 +263,12 @@ export default function UpgradeAccess() {
   const activePaidPlanCode = subscription?.status === 'active' && PAID_PLAN_CODES.has(subscription?.plan_code)
     ? subscription.plan_code
     : null;
+  const renewalAvailable = !!planStatus.renewal_available;
+  const paidPlanBaseline = Math.max(
+    getPlanRank(currentPlanCode),
+    getPlanRank(planStatus.last_paid_plan_code)
+  );
+  const visiblePlans = availablePlans.filter((plan) => !PAID_PLAN_CODES.has(plan.code) || getPlanRank(plan.code) >= paidPlanBaseline);
   const upgradeRequest = planStatus.upgrade_request;
 
   return (
@@ -352,7 +368,7 @@ export default function UpgradeAccess() {
                 <button
                   type="button"
                   onClick={() => startCheckout(activePaidPlanCode)}
-                  disabled={actionLoading || !!busyPlanCode}
+                  disabled={actionLoading || !!busyPlanCode || !renewalAvailable}
                   className="btn-primary"
                 >
                   Renew Current Plan
@@ -381,13 +397,18 @@ export default function UpgradeAccess() {
               <button
                 type="button"
                 onClick={() => startCheckout(planStatus.last_paid_plan_code)}
-                disabled={!!busyPlanCode}
+                disabled={!!busyPlanCode || !renewalAvailable}
                 className="btn-primary"
               >
                 Renew {formatPlanName(planStatus.last_paid_plan_code)}
               </button>
             ) : null}
           </div>
+          {!renewalAvailable && activePaidPlanCode ? (
+            <p className="mt-3 text-sm text-gray-500">
+              Renewal becomes available when the current billing period ends on {formatDate(planStatus.renewal_available_at)}.
+            </p>
+          ) : null}
         </article>
       </section>
 
@@ -402,7 +423,7 @@ export default function UpgradeAccess() {
         </div>
 
         <div className="mt-6 grid gap-4 xl:grid-cols-4">
-          {availablePlans.map((plan) => {
+          {visiblePlans.map((plan) => {
             const isCurrent = currentPlanCode === plan.code && subscription?.status === 'active';
             const isPaidPlan = PAID_PLAN_CODES.has(plan.code);
             const buttonLabel = !isPaidPlan

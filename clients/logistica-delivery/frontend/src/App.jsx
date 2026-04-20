@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 
-const ID_TOKEN_STORAGE_KEY = 'logistica_delivery_id_token';
-const ACCESS_TOKEN_STORAGE_KEY = 'logistica_delivery_access_token';
 const IDP_URL = import.meta.env.VITE_IDP_URL || 'http://localhost:8000';
 const IDP_CLIENT_ID = import.meta.env.VITE_IDP_CLIENT_ID || 'P9NNBIKqxRyTQmKbRsUF5AGjGVAXaudc';
 const REDIRECT_URI = import.meta.env.VITE_IDP_REDIRECT_URI || `${window.location.origin}/auth/callback`;
@@ -19,10 +17,6 @@ async function generateCodeChallenge(verifier) {
   const data = encoder.encode(verifier);
   const digest = await crypto.subtle.digest('SHA-256', data);
   return btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function readStoredToken() {
-  return localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
 }
 
 async function beginIdpLogin() {
@@ -60,38 +54,35 @@ async function exchangeIdpCode({ code, state }) {
     throw new Error('State mismatch');
   }
 
-  const formData = new URLSearchParams();
-  formData.set('grant_type', 'authorization_code');
-  formData.set('code', code);
-  formData.set('redirect_uri', REDIRECT_URI);
-  formData.set('client_id', IDP_CLIENT_ID);
-  if (codeVerifier) formData.set('code_verifier', codeVerifier);
-
-  const response = await fetch(`${IDP_URL}/api/v1/token`, {
+  const response = await fetch(`${API_URL}/auth/idp/exchange`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: formData
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      code,
+      codeVerifier,
+    }),
   });
   const data = await response.json();
 
-  if (!response.ok || !data.id_token) {
-    throw new Error(data.error_description || 'Token exchange failed');
-  }
-
   sessionStorage.removeItem('logistica_oauth_state');
   sessionStorage.removeItem('logistica_code_verifier');
-  return {
-    idToken: data.id_token,
-    accessToken: data.access_token || data.id_token
-  };
+
+  if (!response.ok || !data.user) {
+    throw new Error(data.error || 'Unable to finish sign-in');
+  }
+
+  return data.user;
 }
 
-async function fetchSession(token) {
-  const response = await fetch(`${API_URL}/api/me`, {
-    headers: {
-      Authorization: `Bearer ${token}`
-    }
+async function fetchSession() {
+  const response = await fetch(`${API_URL}/auth/session`, {
+    credentials: 'include',
   });
+
+  if (response.status === 401) {
+    return null;
+  }
 
   const payload = await response.json();
   if (!response.ok) {
@@ -101,15 +92,22 @@ async function fetchSession(token) {
   return payload.user;
 }
 
-function logoutFromIdp(idToken) {
-  const params = new URLSearchParams({
-    client_id: IDP_CLIENT_ID,
-    post_logout_redirect_uri: window.location.origin,
+async function logoutLocalSession() {
+  await fetch(`${API_URL}/auth/logout`, {
+    method: 'POST',
+    credentials: 'include',
   });
-  if (idToken) {
-    params.set('id_token_hint', idToken);
+}
+
+async function getIdpLogoutUrl() {
+  const response = await fetch(`${API_URL}/auth/logout-url`, {
+    credentials: 'include',
+  });
+  const payload = await response.json();
+  if (!response.ok || !payload.logoutUrl) {
+    throw new Error(payload.error || 'Unable to start SigAuth logout');
   }
-  window.location.assign(`${IDP_URL}/api/v1/logout?${params.toString()}`);
+  return payload.logoutUrl;
 }
 
 const ROLE_CONTENT = {
@@ -185,7 +183,7 @@ function AuthPage() {
             </p>
             <div className="pill-list">
               <span className="pill">SigAuth login</span>
-              <span className="pill">App roles only</span>
+              <span className="pill">Backend session cookie</span>
               <span className="pill">Node + Express + React</span>
             </div>
           </div>
@@ -251,16 +249,11 @@ function CallbackPage({ onAuthenticated }) {
     }
 
     exchangeIdpCode({ code, state })
-      .then(async ({ idToken, accessToken }) => {
-        localStorage.setItem(ID_TOKEN_STORAGE_KEY, idToken);
-        localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, accessToken);
-        const user = await fetchSession(accessToken);
-        onAuthenticated({ idToken, accessToken, user });
+      .then(async (user) => {
+        onAuthenticated(user);
         navigate('/dashboard', { replace: true });
       })
       .catch(() => {
-        localStorage.removeItem(ID_TOKEN_STORAGE_KEY);
-        localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
         navigate('/', { replace: true });
       });
   }, [navigate, onAuthenticated]);
@@ -365,7 +358,7 @@ function Dashboard({ user, onLogout }) {
               <div className="dashboard-card" style={{ padding: 24 }}>
                 <h2 style={{ marginTop: 0 }}>Token capabilities</h2>
                 <p className="muted">
-                  These claims are already available to the client without needing any organization group names.
+                  These claims were resolved at sign-in and are now protected by the backend session cookie.
                 </p>
                 <div className="token-badges">
                   {user.permissions.length
@@ -386,55 +379,36 @@ function Dashboard({ user, onLogout }) {
 }
 
 export default function App() {
-  const [token, setToken] = useState(readStoredToken);
-  const [idToken, setIdToken] = useState(() => localStorage.getItem(ID_TOKEN_STORAGE_KEY));
   const [user, setUser] = useState(null);
   const [ready, setReady] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
-    const activeToken = readStoredToken();
-    if (!activeToken) {
-      setUser(null);
-      setReady(true);
-      return;
-    }
-
-    fetchSession(activeToken)
+    fetchSession()
       .then((sessionUser) => {
-        setToken(activeToken);
         setUser(sessionUser);
       })
       .catch(() => {
-        localStorage.removeItem(ID_TOKEN_STORAGE_KEY);
-        localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
-        setIdToken(null);
-        setToken(null);
         setUser(null);
       })
       .finally(() => setReady(true));
   }, []);
 
   const authApi = useMemo(() => ({
-    onAuthenticated({ idToken: nextIdToken, accessToken: nextAccessToken, user: nextUser }) {
-      setIdToken(nextIdToken);
-      setToken(nextAccessToken);
+    onAuthenticated(nextUser) {
       setUser(nextUser);
     },
     async logout(globalLogout = false) {
-      const activeIdToken = idToken || localStorage.getItem(ID_TOKEN_STORAGE_KEY);
-      localStorage.removeItem(ID_TOKEN_STORAGE_KEY);
-      localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
-      setIdToken(null);
-      setToken(null);
+      await logoutLocalSession().catch(() => {});
       setUser(null);
       if (globalLogout) {
-        logoutFromIdp(activeIdToken);
+        const logoutUrl = await getIdpLogoutUrl();
+        window.location.assign(logoutUrl);
         return;
       }
       navigate('/', { replace: true });
     }
-  }), [idToken, navigate]);
+  }), [navigate]);
 
   if (!ready) {
     return (
@@ -443,7 +417,7 @@ export default function App() {
           <div className="callback-card">
             <span className="eyebrow">Loading</span>
             <h1>Preparing Logistica Delivery</h1>
-            <p className="muted">Checking whether you already have a valid SigAuth session for this client.</p>
+            <p className="muted">Checking whether you already have a valid session for this client.</p>
           </div>
         </div>
       </div>

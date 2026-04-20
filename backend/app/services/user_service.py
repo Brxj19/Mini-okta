@@ -36,7 +36,7 @@ async def create_user(
     
     Validates password policy before creation.
     """
-    password_to_store = password or _generate_temporary_password()
+    password_to_store = password or generate_temporary_password()
     valid, error = validate_password_policy(password_to_store)
     if not valid:
         raise ValueError(error)
@@ -57,7 +57,7 @@ async def create_user(
     return user
 
 
-def _generate_temporary_password() -> str:
+def generate_temporary_password() -> str:
     """Generate a strong temporary password for invitation-only onboarding."""
     return f"TmP!{secrets.token_urlsafe(18)}9aA"
 

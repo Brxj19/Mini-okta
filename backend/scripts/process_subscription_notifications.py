@@ -1,8 +1,12 @@
 """Send subscription reminders and expiry notices for paid plans."""
 
 import asyncio
+import os
+import sys
 
 from sqlalchemy import select
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.database import async_session_factory
 from app.models.organization import Organization

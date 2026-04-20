@@ -67,10 +67,11 @@ async def send_invitation_email(
     setup_token: str,
     org_id: Optional[UUID] = None,
     user_id: Optional[UUID] = None,
+    temporary_password: Optional[str] = None,
 ) -> None:
     """Queue/send first-time onboarding invitation email."""
     setup_url = f"{settings.ADMIN_CONSOLE_URL}/setup-password?token={setup_token}"
-    html_body = invitation_email_html(setup_url, settings.INVITATION_LINK_TTL_HOURS)
+    html_body = invitation_email_html(setup_url, settings.INVITATION_LINK_TTL_HOURS, temporary_password)
 
     await queue_email(
         db=db,

@@ -2,12 +2,13 @@
 
 from typing import Optional
 from uuid import UUID
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.organization import Organization
+from app.models.password_reset import PasswordResetToken
 
 from app.dependencies import get_db, require_super_admin, require_permission
 from app.schemas.organization import (
@@ -28,10 +29,13 @@ from app.services.billing_service import (
 from app.services.organization_service import (
     create_organization_with_admin, get_organization, list_organizations,
     update_organization, suspend_organization, activate_organization, soft_delete_organization,
-    set_organization_access_tier, get_org_access_tier, get_org_limits,
+    set_organization_access_tier, get_org_access_tier, get_org_limits, slugify_org_name, resolve_available_org_slug,
 )
 from app.services.audit_service import write_audit_event
 from app.services.notification_service import send_admin_activity_notification, send_notification_event
+from app.services.email_service import send_invitation_email
+from app.utils.crypto_utils import generate_reset_token
+from app.config import settings
 
 router = APIRouter(prefix="/api/v1/admin/organizations", tags=["organizations"])
 org_router = APIRouter(prefix="/api/v1/organizations/{org_id}", tags=["organizations"])
@@ -55,11 +59,17 @@ async def create_org(
     db: AsyncSession = Depends(get_db),
 ):
     """Create organization, seed roles, and bootstrap the first org admin."""
+    preferred_slug = (body.slug or slugify_org_name(body.name)).strip().lower()
+    preferred_slug = preferred_slug.strip("-")
+    if not preferred_slug:
+        preferred_slug = "org"
+    slug = await resolve_available_org_slug(db, preferred_slug)
+
     try:
-        org, bootstrap_admin = await create_organization_with_admin(
+        org, bootstrap_admin, temporary_password = await create_organization_with_admin(
             db,
             name=body.name,
-            slug=body.slug,
+            slug=slug,
             admin_email=body.bootstrap_admin.email,
             admin_password=body.bootstrap_admin.password,
             admin_first_name=body.bootstrap_admin.first_name,
@@ -70,6 +80,24 @@ async def create_org(
     except ValueError as exc:
         raise HTTPException(400, detail={"error": "invalid_request", "error_description": str(exc)})
 
+    setup_token = generate_reset_token()
+    token_record = PasswordResetToken(
+        token=setup_token,
+        user_id=bootstrap_admin.id,
+        purpose="onboarding",
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=settings.PASSWORD_SETUP_TOKEN_TTL_HOURS),
+    )
+    db.add(token_record)
+    await db.flush()
+    await send_invitation_email(
+        db,
+        bootstrap_admin.email,
+        setup_token,
+        org_id=org.id,
+        user_id=bootstrap_admin.id,
+        temporary_password=temporary_password,
+    )
+
     await write_audit_event(
         db, "org.created", "organization", str(org.id),
         org_id=org.id, actor_id=current_user["user_id"],
@@ -78,6 +106,7 @@ async def create_org(
             "slug": org.slug,
             "bootstrap_admin_email": bootstrap_admin.email,
             "bootstrap_admin_id": str(bootstrap_admin.id),
+            "bootstrap_admin_invitation_expires_at": token_record.expires_at.isoformat(),
         }
     )
 

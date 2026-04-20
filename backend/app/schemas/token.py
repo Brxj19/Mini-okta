@@ -50,6 +50,9 @@ class UserInfoResponse(BaseModel):
     family_name: Optional[str] = None
     roles: list[str] = Field(default_factory=list)
     permissions: list[str] = Field(default_factory=list)
+    app_groups: list[str] = Field(default_factory=list)
+    app_group_ids: list[str] = Field(default_factory=list)
+    app_roles: list[str] = Field(default_factory=list)
     org_id: str
 
 
@@ -60,3 +63,4 @@ class SessionResponse(BaseModel):
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
     created_at: Optional[str] = None
+    current: bool = False

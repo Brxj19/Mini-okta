@@ -43,6 +43,7 @@ async def create_application(
     id_token_lifetime: int = 3600,
     access_token_lifetime: int = 3600,
     refresh_token_enabled: bool = False,
+    require_explicit_role_mappings: bool = False,
     logo_url: Optional[str] = None,
 ) -> tuple[Application, Optional[str]]:
     """Create an OAuth application.
@@ -77,6 +78,7 @@ async def create_application(
         id_token_lifetime=id_token_lifetime,
         access_token_lifetime=access_token_lifetime,
         refresh_token_enabled=refresh_token_enabled,
+        require_explicit_role_mappings=require_explicit_role_mappings,
         logo_url=logo_url,
     )
     db.add(app)
@@ -157,6 +159,7 @@ async def update_application(
     id_token_lifetime: Optional[int] = None,
     access_token_lifetime: Optional[int] = None,
     refresh_token_enabled: Optional[bool] = None,
+    require_explicit_role_mappings: Optional[bool] = None,
     logo_url: Optional[str] = None,
 ) -> Optional[Application]:
     """Update application fields."""
@@ -178,6 +181,8 @@ async def update_application(
         app.access_token_lifetime = access_token_lifetime
     if refresh_token_enabled is not None:
         app.refresh_token_enabled = refresh_token_enabled
+    if require_explicit_role_mappings is not None:
+        app.require_explicit_role_mappings = require_explicit_role_mappings
     if logo_url is not None:
         app.logo_url = logo_url
 
@@ -209,6 +214,17 @@ async def disable_application(db: AsyncSession, app_id: UUID) -> Optional[Applic
     if not app:
         return None
     app.status = "disabled"
+    app.updated_at = datetime.now(timezone.utc)
+    await db.flush()
+    return app
+
+
+async def enable_application(db: AsyncSession, app_id: UUID) -> Optional[Application]:
+    """Re-enable a disabled application."""
+    app = await get_application(db, app_id)
+    if not app:
+        return None
+    app.status = "active"
     app.updated_at = datetime.now(timezone.utc)
     await db.flush()
     return app

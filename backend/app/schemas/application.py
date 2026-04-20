@@ -18,6 +18,7 @@ class ApplicationCreate(BaseModel):
     id_token_lifetime: int = Field(default=3600, ge=300, le=86400)
     access_token_lifetime: int = Field(default=3600, ge=300, le=86400)
     refresh_token_enabled: bool = False
+    require_explicit_role_mappings: bool = False
 
 
 class ApplicationUpdate(BaseModel):
@@ -28,6 +29,7 @@ class ApplicationUpdate(BaseModel):
     id_token_lifetime: Optional[int] = Field(default=None, ge=300, le=86400)
     access_token_lifetime: Optional[int] = Field(default=None, ge=300, le=86400)
     refresh_token_enabled: Optional[bool] = None
+    require_explicit_role_mappings: Optional[bool] = None
     logo_url: Optional[str] = None
 
 
@@ -45,6 +47,7 @@ class ApplicationResponse(BaseModel):
     id_token_lifetime: int
     access_token_lifetime: Optional[int] = None
     refresh_token_enabled: bool
+    require_explicit_role_mappings: bool
     created_at: datetime
     updated_at: datetime
 

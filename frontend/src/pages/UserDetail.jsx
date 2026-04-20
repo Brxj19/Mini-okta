@@ -7,6 +7,7 @@ import PageHeader from '../components/PageHeader';
 import UserAvatar from '../components/UserAvatar';
 import { ArrowLeftIcon, CheckIcon, XIcon } from '../components/Icons';
 import CopyButton from '../components/CopyButton';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { getDisplayName } from '../utils/profile';
 import { hasPermission, hasRole } from '../utils/permissions';
 
@@ -24,6 +25,7 @@ export default function UserDetail() {
   const [notificationPreferences, setNotificationPreferences] = useState([]);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [confirmAction, setConfirmAction] = useState(null);
 
   const fetchUser = async () => {
     try {
@@ -72,31 +74,24 @@ export default function UserDetail() {
   };
 
   const handleSuspend = async () => {
-    if (!confirm('Suspend this user? All sessions will be revoked.')) return;
     await api.post(`/api/v1/organizations/${orgId}/users/${id}/suspend`);
     fetchUser();
   };
 
   const handleUnlock = async () => {
-    if (!confirm('Unlock/reactivate this user?')) return;
     await api.post(`/api/v1/organizations/${orgId}/users/${id}/unlock`);
     fetchUser();
   };
 
   const handleResetPassword = async () => {
-    if (!confirm('Send password reset email?')) return;
     await api.post(`/api/v1/organizations/${orgId}/users/${id}/reset-password`);
-    alert('Password reset email sent');
   };
 
   const handleRevokeSessions = async () => {
-    if (!confirm('Revoke all active sessions?')) return;
-    const res = await api.post(`/api/v1/organizations/${orgId}/users/${id}/revoke-sessions`);
-    alert(res.data.message);
+    await api.post(`/api/v1/organizations/${orgId}/users/${id}/revoke-sessions`);
   };
 
   const handleDelete = async () => {
-    if (!confirm('Permanently delete this user?')) return;
     await api.delete(`/api/v1/organizations/${orgId}/users/${id}`);
     navigate('/users');
   };
@@ -137,6 +132,12 @@ export default function UserDetail() {
   const canResetPasswords = hasPermission(claims, 'user:reset_password');
   const canDeleteUsers = hasPermission(claims, 'user:delete');
   const canReadUsers = hasPermission(claims, 'user:read');
+  const canRevokeSessions = canUpdateUsers && allowSensitiveActions && !isSelf;
+  const canSuspendUser = canUpdateUsers && allowSensitiveActions && !isSelf && user.status === 'active';
+  const canUnlockUser = canUpdateUsers && allowSensitiveActions && !isSelf && (user.status === 'locked' || user.status === 'suspended');
+  const canResetUserPassword = canResetPasswords && allowSensitiveActions && !isSelf;
+  const canDeleteUser = canDeleteUsers && allowSensitiveActions && !isSelf;
+  const canEditUser = canUpdateUsers && allowSensitiveActions && !isSelf;
 
   return (
     <div>
@@ -151,11 +152,41 @@ export default function UserDetail() {
         description={user.email}
         actions={
           <div className="flex gap-2">
-            {canUpdateUsers && allowSensitiveActions && !isSelf ? <button onClick={handleRevokeSessions} className="btn-secondary text-sm">Revoke sessions</button> : null}
-            {canResetPasswords && allowSensitiveActions && !isSelf ? <button onClick={handleResetPassword} className="btn-secondary text-sm">Reset password</button> : null}
-            {canUpdateUsers && allowSensitiveActions && !isSelf && user.status === 'active' ? <button onClick={handleSuspend} className="btn-danger text-sm">Suspend</button> : null}
-            {canUpdateUsers && allowSensitiveActions && !isSelf && (user.status === 'locked' || user.status === 'suspended') ? <button onClick={handleUnlock} className="btn-secondary text-sm">Unlock</button> : null}
-            {canDeleteUsers && allowSensitiveActions && !isSelf ? <button onClick={handleDelete} className="btn-danger text-sm">Delete</button> : null}
+            <button
+              onClick={() => setConfirmAction('revoke')}
+              className={`btn-secondary text-sm ${canRevokeSessions ? '' : 'cursor-not-allowed opacity-55'}`}
+              disabled={!canRevokeSessions}
+            >
+              Revoke sessions
+            </button>
+            <button
+              onClick={() => setConfirmAction('reset')}
+              className={`btn-secondary text-sm ${canResetUserPassword ? '' : 'cursor-not-allowed opacity-55'}`}
+              disabled={!canResetUserPassword}
+            >
+              Reset password
+            </button>
+            <button
+              onClick={() => setConfirmAction('suspend')}
+              className={`btn-danger text-sm ${canSuspendUser ? '' : 'cursor-not-allowed opacity-55'}`}
+              disabled={!canSuspendUser}
+            >
+              Suspend
+            </button>
+            <button
+              onClick={() => setConfirmAction('unlock')}
+              className={`btn-secondary text-sm ${canUnlockUser ? '' : 'cursor-not-allowed opacity-55'}`}
+              disabled={!canUnlockUser}
+            >
+              Unlock
+            </button>
+            <button
+              onClick={() => setConfirmAction('delete')}
+              className={`btn-danger text-sm ${canDeleteUser ? '' : 'cursor-not-allowed opacity-55'}`}
+              disabled={!canDeleteUser}
+            >
+              Delete
+            </button>
           </div>
         }
       />
@@ -197,7 +228,7 @@ export default function UserDetail() {
         <div className="card">
           <div className="mb-4 flex items-center justify-between gap-3">
             <h2 className="text-lg font-semibold">Details</h2>
-            {canUpdateUsers && allowSensitiveActions && !isSelf ? (
+            {canEditUser ? (
               isEditing ? (
                 <div className="flex gap-2">
                   <button onClick={() => {
@@ -316,7 +347,7 @@ export default function UserDetail() {
                     type="checkbox"
                     checked={!!preference.enabled}
                     onChange={(event) => togglePreference(preference.event_key, event.target.checked)}
-                    disabled={preferencesSaving || !(canUpdateUsers && allowSensitiveActions && !isSelf)}
+                    disabled={preferencesSaving || !canEditUser}
                     className="h-4 w-4 rounded border-slate-300"
                   />
                 </label>
@@ -325,6 +356,44 @@ export default function UserDetail() {
           )}
         </div>
       ) : null}
+
+      <ConfirmDialog
+        open={!!confirmAction}
+        title={
+          confirmAction === 'suspend' ? 'Suspend user?' :
+          confirmAction === 'unlock' ? 'Unlock user?' :
+          confirmAction === 'reset' ? 'Send password reset email?' :
+          confirmAction === 'revoke' ? 'Revoke all active sessions?' :
+          confirmAction === 'delete' ? 'Delete user?' :
+          ''
+        }
+        description={
+          confirmAction === 'suspend' ? 'This will suspend the user and revoke all of their active sessions.' :
+          confirmAction === 'unlock' ? 'This will reactivate the user account so they can sign in again.' :
+          confirmAction === 'reset' ? 'A password reset email will be sent to this user.' :
+          confirmAction === 'revoke' ? 'This will revoke all active sessions for this user across SigAuth and connected apps.' :
+          confirmAction === 'delete' ? 'This user will be soft-deleted and removed from normal operations.' :
+          ''
+        }
+        confirmLabel={
+          confirmAction === 'reset' ? 'Send email' :
+          confirmAction === 'revoke' ? 'Revoke sessions' :
+          confirmAction === 'unlock' ? 'Unlock user' :
+          confirmAction === 'suspend' ? 'Suspend user' :
+          confirmAction === 'delete' ? 'Delete user' :
+          'Confirm'
+        }
+        onClose={() => setConfirmAction(null)}
+        onConfirm={async () => {
+          const action = confirmAction;
+          setConfirmAction(null);
+          if (action === 'suspend') await handleSuspend();
+          if (action === 'unlock') await handleUnlock();
+          if (action === 'reset') await handleResetPassword();
+          if (action === 'revoke') await handleRevokeSessions();
+          if (action === 'delete') await handleDelete();
+        }}
+      />
     </div>
   );
 }

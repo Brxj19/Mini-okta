@@ -28,6 +28,7 @@ from app.services.notification_service import (
     send_admin_activity_notification,
     send_notification_event,
 )
+from app.services.session_service import revoke_provider_session
 from app.utils.crypto_utils import generate_reset_token
 from app.models.password_reset import PasswordResetToken
 from app.config import settings
@@ -301,7 +302,7 @@ async def suspend_user_endpoint(
     await revoke_all_user_tokens(db, user_id, reason="user_suspended")
     await revoke_all_browser_sessions_for_user(redis, str(user_id))
     for jti in jtis:
-        await redis.delete(f"session:{jti}")
+        await revoke_provider_session(db=db, redis=redis, jti=jti, reason="user_suspended")
 
     await write_audit_event(
         db, "user.suspended", "user", str(user_id),
@@ -410,7 +411,7 @@ async def delete_user_endpoint(
     await revoke_all_user_tokens(db, user_id, reason="user_deleted")
     await revoke_all_browser_sessions_for_user(redis, str(user_id))
     for jti in jtis:
-        await redis.delete(f"session:{jti}")
+        await revoke_provider_session(db=db, redis=redis, jti=jti, reason="user_deleted")
 
     await soft_delete_user(db, user_id)
     await send_admin_activity_notification(
@@ -439,7 +440,7 @@ async def revoke_sessions_endpoint(
     await revoke_all_user_tokens(db, user_id, reason="sessions_revoked")
     await revoke_all_browser_sessions_for_user(redis, str(user_id))
     for jti in jtis:
-        await redis.delete(f"session:{jti}")
+        await revoke_provider_session(db=db, redis=redis, jti=jti, reason="sessions_revoked")
 
     return {"message": f"Revoked {len(jtis)} sessions"}
 

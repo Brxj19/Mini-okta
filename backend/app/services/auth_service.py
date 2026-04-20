@@ -1,7 +1,6 @@
 """Auth service: login logic, lockout, RBAC resolution, token issuance."""
 
 import hashlib
-import json
 from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
 from uuid import UUID
@@ -11,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.user import User
+from app.services.session_service import register_provider_session
 from app.services.user_service import get_user_by_email, resolve_rbac, get_user_groups
 from app.services.application_service import (
     get_application_by_client_id,
@@ -31,43 +31,23 @@ def derive_app_roles(
     app_groups: list[str],
     role_mappings: Optional[list[dict[str, str]]] = None,
 ) -> list[str]:
-    """Derive app-scoped roles from configured mappings or fallback heuristics."""
+    """Derive app-scoped roles from explicit application role mappings only."""
     normalized_global_roles = {str(role).lower() for role in (global_roles or [])}
     normalized_groups = {str(group).lower() for group in (app_groups or [])}
 
     configured_mappings = role_mappings or []
-    if configured_mappings:
-        mapped_roles: set[str] = set()
-        for mapping in configured_mappings:
-            source_type = str(mapping.get("source_type", "")).lower()
-            source_value = str(mapping.get("source_value", "")).lower()
-            app_role = str(mapping.get("app_role", "")).lower().strip()
-            if not source_value or not app_role:
-                continue
-            if source_type == "group" and source_value in normalized_groups:
-                mapped_roles.add(app_role)
-            if source_type == "role" and source_value in normalized_global_roles:
-                mapped_roles.add(app_role)
-        return sorted(mapped_roles)
-
-    app_roles: set[str] = set()
-    if "super_admin" in normalized_global_roles or "org:admin" in normalized_global_roles:
-        app_roles.add("app:admin")
-
-    for group in normalized_groups:
-        if "admin" in group:
-            app_roles.add("app:admin")
-        if "instructor" in group:
-            app_roles.add("app:instructor")
-        if "learner" in group or "member" in group:
-            app_roles.add("app:learner")
-        if "manager" in group:
-            app_roles.add("app:manager")
-
-    if not app_roles and normalized_groups:
-        app_roles.add("app:user")
-
-    return sorted(app_roles)
+    mapped_roles: set[str] = set()
+    for mapping in configured_mappings:
+        source_type = str(mapping.get("source_type", "")).lower()
+        source_value = str(mapping.get("source_value", "")).lower()
+        app_role = str(mapping.get("app_role", "")).lower().strip()
+        if not source_value or not app_role:
+            continue
+        if source_type == "group" and source_value in normalized_groups:
+            mapped_roles.add(app_role)
+        if source_type == "role" and source_value in normalized_global_roles:
+            mapped_roles.add(app_role)
+    return sorted(mapped_roles)
 
 
 def _is_app_admin(user: User, global_roles: list[str]) -> bool:
@@ -87,7 +67,8 @@ async def resolve_application_access(
     Rules:
     - super admins and org admins may access any application in their organization
     - regular users must belong to at least one group assigned to the application
-    - application role mappings are optional and only shape app_roles, not access gates
+    - app role derivation is explicit only
+    - applications that require explicit role mappings will block sign-in until one mapping matches
     """
     app_group_assignments: list[dict[str, Any]] = []
     role_mappings: list[dict[str, str]] = []
@@ -154,6 +135,18 @@ async def resolve_application_access(
             "app_roles": app_roles,
             "access_allowed": False,
             "access_error": "You are not assigned to any groups authorized for this application",
+            "admin_bypass": False,
+        }
+
+    if bool(app and getattr(app, "require_explicit_role_mappings", False)) and not app_roles:
+        return {
+            "app": app,
+            "app_group_assignments": app_group_assignments,
+            "authorized_app_groups": authorized_app_groups,
+            "role_mappings": role_mappings,
+            "app_roles": app_roles,
+            "access_allowed": False,
+            "access_error": "This application requires explicit app role mappings. Ask your organization admin to configure a matching application role mapping for your assigned group or role.",
             "admin_bypass": False,
         }
 
@@ -339,15 +332,16 @@ async def issue_login_success(
         scopes=["openid", "profile", "email"],
     )
 
-    # Store session in Redis
-    session_data = json.dumps({
-        "jti": jti,
-        "user_id": str(user.id),
-        "client_id": client_id,
-        "ip_address": ip_address,
-        "user_agent": user_agent,
-    })
-    await redis.set(f"session:{jti}", session_data, ex=expires_in)
+    await register_provider_session(
+        db=db,
+        redis=redis,
+        jti=jti,
+        user_id=str(user.id),
+        client_id=client_id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        expires_in=expires_in,
+    )
 
     browser_fingerprint = hashlib.sha256(f"{client_id}|{user_agent}".encode("utf-8")).hexdigest()
     known_browser_key = f"known_browsers:{user.id}"
@@ -375,6 +369,7 @@ async def issue_login_success(
         "id_token": id_token_str,
         "token_type": "Bearer",
         "expires_in": expires_in,
+        "session_jti": jti,
     }
 
     return result
@@ -433,15 +428,16 @@ async def authorize_and_issue_tokens(
         lifetime=id_token_lifetime,
     )
 
-    # Store session
-    session_data = json.dumps({
-        "jti": jti,
-        "user_id": str(user.id),
-        "client_id": client_id,
-        "ip_address": ip_address,
-        "user_agent": user_agent,
-    })
-    await redis.set(f"session:{jti}", session_data, ex=expires_in)
+    await register_provider_session(
+        db=db,
+        redis=redis,
+        jti=jti,
+        user_id=str(user.id),
+        client_id=client_id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        expires_in=expires_in,
+    )
 
     # Audit
     await write_audit_event(

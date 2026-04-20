@@ -5,6 +5,7 @@ import api from '../api/client';
 import { ArrowLeftIcon, PlusIcon, XIcon } from '../components/Icons';
 import PageHeader from '../components/PageHeader';
 import CopyButton from '../components/CopyButton';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { hasPermission as userHasPermission } from '../utils/permissions';
 
 const DEFAULT_SCOPES = ['openid', 'profile', 'email'];
@@ -20,6 +21,7 @@ function normalizeApplicationForm(app) {
     id_token_lifetime: app.id_token_lifetime || 3600,
     access_token_lifetime: app.access_token_lifetime || 3600,
     refresh_token_enabled: !!app.refresh_token_enabled,
+    require_explicit_role_mappings: !!app.require_explicit_role_mappings,
   };
 }
 
@@ -45,6 +47,7 @@ export default function ApplicationDetail() {
   const [postLogoutRedirectInput, setPostLogoutRedirectInput] = useState('');
   const [scopeInput, setScopeInput] = useState('');
   const [permissionMessage, setPermissionMessage] = useState('');
+  const [confirmState, setConfirmState] = useState(null);
 
   const canUpdateApp = isSuperAdmin || userHasPermission(claims, 'app:update');
   const canDeleteApp = isSuperAdmin || userHasPermission(claims, 'app:delete');
@@ -102,7 +105,6 @@ export default function ApplicationDetail() {
       denyAction('You do not have permission to rotate application secrets.');
       return;
     }
-    if (!confirm('Rotate client secret? The old secret will stop working immediately.')) return;
     try {
       const res = await api.post(`/api/v1/organizations/${orgId}/applications/${id}/rotate-secret`);
       setNewSecret(res.data.client_secret);
@@ -114,8 +116,16 @@ export default function ApplicationDetail() {
       denyAction('You do not have permission to disable applications.');
       return;
     }
-    if (!confirm('Disable this application?')) return;
     await api.post(`/api/v1/organizations/${orgId}/applications/${id}/disable`);
+    fetchApp();
+  };
+
+  const handleEnable = async () => {
+    if (!canUpdateApp) {
+      denyAction('You do not have permission to enable applications.');
+      return;
+    }
+    await api.post(`/api/v1/organizations/${orgId}/applications/${id}/enable`);
     fetchApp();
   };
 
@@ -124,7 +134,6 @@ export default function ApplicationDetail() {
       denyAction('You do not have permission to delete applications.');
       return;
     }
-    if (!confirm('Delete this application? All tokens will be revoked.')) return;
     await api.delete(`/api/v1/organizations/${orgId}/applications/${id}`);
     navigate('/applications');
   };
@@ -147,7 +156,6 @@ export default function ApplicationDetail() {
       denyAction('You do not have permission to change application group assignments.');
       return;
     }
-    if (!confirm('Remove this group from the application?')) return;
     try {
       await api.delete(`/api/v1/organizations/${orgId}/applications/${id}/groups/${groupId}`);
       fetchAssignedGroups();
@@ -191,7 +199,6 @@ export default function ApplicationDetail() {
       denyAction('You do not have permission to manage application role mappings.');
       return;
     }
-    if (!confirm('Remove this role mapping?')) return;
     try {
       await api.delete(`/api/v1/organizations/${orgId}/applications/${id}/role-mappings/${mappingId}`);
       await fetchRoleMappings();
@@ -349,6 +356,7 @@ export default function ApplicationDetail() {
         id_token_lifetime: Number(configForm.id_token_lifetime),
         access_token_lifetime: Number(configForm.access_token_lifetime),
         refresh_token_enabled: !!configForm.refresh_token_enabled,
+        require_explicit_role_mappings: !!configForm.require_explicit_role_mappings,
       };
       const res = await api.patch(`/api/v1/organizations/${orgId}/applications/${id}`, payload);
       setApp(res.data);
@@ -374,10 +382,14 @@ export default function ApplicationDetail() {
         actions={
           <div className="flex gap-2">
             {['web', 'm2m'].includes(app.app_type) && (
-              <button onClick={handleRotateSecret} className={`btn-secondary text-sm ${canUpdateApp ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canUpdateApp}>Rotate secret</button>
+              <button onClick={() => setConfirmState({ type: 'rotate-secret' })} className={`btn-secondary text-sm ${canUpdateApp ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canUpdateApp} disabled={!canUpdateApp}>Rotate secret</button>
             )}
-            {app.status === 'active' && <button onClick={handleDisable} className={`btn-danger text-sm ${canUpdateApp ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canUpdateApp}>Disable</button>}
-            <button onClick={handleDelete} className={`btn-danger text-sm ${canDeleteApp ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canDeleteApp}>Delete</button>
+            {app.status === 'active' ? (
+              <button onClick={() => setConfirmState({ type: 'disable' })} className={`btn-danger text-sm ${canUpdateApp ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canUpdateApp} disabled={!canUpdateApp}>Disable</button>
+            ) : (
+              <button onClick={() => setConfirmState({ type: 'enable' })} className={`btn-secondary text-sm ${canUpdateApp ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canUpdateApp} disabled={!canUpdateApp}>Enable</button>
+            )}
+            <button onClick={() => setConfirmState({ type: 'delete' })} className={`btn-danger text-sm ${canDeleteApp ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canDeleteApp} disabled={!canDeleteApp}>Delete</button>
           </div>
         }
       />
@@ -618,6 +630,24 @@ export default function ApplicationDetail() {
                 </label>
               </dd>
             </div>
+            <div>
+              <dt className="text-xs text-slate-500 uppercase">Role Mapping Policy</dt>
+              <dd className="mt-2 space-y-2">
+                <label className="flex items-center gap-3 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={!!configForm.require_explicit_role_mappings}
+                    onChange={e => updateConfigField('require_explicit_role_mappings', e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    disabled={!isEditingConfig || !canUpdateApp}
+                  />
+                  Require explicit app role mappings for sign-in
+                </label>
+                <p className="text-xs text-slate-500">
+                  Turn this on for role-based apps like SigVerse or Logistica. Leave it off for apps that only need authentication and app access.
+                </p>
+              </dd>
+            </div>
             <div className="pt-2 flex gap-3">
               {!isEditingConfig && (
                 <button onClick={handleEditStart} className={`btn-secondary ${canUpdateApp ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canUpdateApp}>
@@ -641,7 +671,7 @@ export default function ApplicationDetail() {
         <div className="card">
           <h2 className="text-lg font-semibold mb-4">Assigned Groups</h2>
           <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            Regular users can sign in only if they belong to one of these groups. Organization admins can always sign in, and role mappings remain optional.
+            Regular users can sign in only if they belong to one of these groups. Organization admins can always sign in. App role behavior is controlled by the explicit role-mapping policy in configuration.
           </div>
           <div className="flex gap-3 mb-5">
             <select value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)} className="input-field" disabled={!canUpdateApp}>
@@ -665,7 +695,7 @@ export default function ApplicationDetail() {
                   <p className="text-sm font-semibold text-slate-900">{group.name}</p>
                   <p className="mt-1 text-xs text-slate-500">{group.description || 'No description'}</p>
                 </div>
-                <button onClick={() => removeGroup(group.id)} className={`text-sm font-medium text-red-700 hover:text-red-800 ${canUpdateApp ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canUpdateApp}>Remove</button>
+                <button onClick={() => setConfirmState({ type: 'remove-group', group })} className={`text-sm font-medium text-red-700 hover:text-red-800 ${canUpdateApp ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canUpdateApp} disabled={!canUpdateApp}>Remove</button>
               </div>
             ))}
             {groups.length === 0 && <p className="text-sm text-slate-500">No groups assigned to this application.</p>}
@@ -675,7 +705,7 @@ export default function ApplicationDetail() {
         <div className="card xl:col-span-3">
           <h2 className="text-lg font-semibold mb-4">Application Role Mappings</h2>
           <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-            app_roles are derived from these mappings first. If no mappings exist, the platform fallback heuristic is used.
+            App roles are derived only from these explicit mappings. If this application requires role mappings and no matching mapping exists, sign-in is blocked.
           </div>
           {mappingError && (
             <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -747,7 +777,7 @@ export default function ApplicationDetail() {
                       </span>
                     </td>
                     <td className="px-4 py-2 text-right">
-                      <button onClick={() => removeRoleMapping(mapping.id)} className={`text-sm font-medium text-red-700 hover:text-red-800 ${canUpdateApp ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canUpdateApp}>
+                      <button onClick={() => setConfirmState({ type: 'remove-role-mapping', mapping })} className={`text-sm font-medium text-red-700 hover:text-red-800 ${canUpdateApp ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canUpdateApp} disabled={!canUpdateApp}>
                         Remove
                       </button>
                     </td>
@@ -756,7 +786,7 @@ export default function ApplicationDetail() {
                 {roleMappings.length === 0 && (
                   <tr>
                     <td colSpan="4" className="px-4 py-5 text-sm text-slate-500">
-                      No role mappings configured. Token generation will use fallback group-name heuristics.
+                      No role mappings configured yet.
                     </td>
                   </tr>
                 )}
@@ -765,6 +795,48 @@ export default function ApplicationDetail() {
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={!!confirmState}
+        title={
+          confirmState?.type === 'rotate-secret' ? 'Rotate client secret?' :
+          confirmState?.type === 'disable' ? 'Disable application?' :
+          confirmState?.type === 'enable' ? 'Enable application?' :
+          confirmState?.type === 'delete' ? 'Delete application?' :
+          confirmState?.type === 'remove-group' ? 'Remove group assignment?' :
+          confirmState?.type === 'remove-role-mapping' ? 'Remove role mapping?' :
+          ''
+        }
+        description={
+          confirmState?.type === 'rotate-secret' ? 'The existing client secret will stop working immediately.' :
+          confirmState?.type === 'disable' ? 'The application will stop accepting new sign-ins until it is enabled again.' :
+          confirmState?.type === 'enable' ? 'This will re-enable sign-in for this application.' :
+          confirmState?.type === 'delete' ? 'All tokens for this application will be revoked and the app will be soft-deleted.' :
+          confirmState?.type === 'remove-group' ? `The group '${confirmState?.group?.name || ''}' will lose access to this application.` :
+          confirmState?.type === 'remove-role-mapping' ? `The mapping '${confirmState?.mapping?.source_value || ''} -> ${confirmState?.mapping?.app_role || ''}' will be removed.` :
+          ''
+        }
+        confirmLabel={
+          confirmState?.type === 'rotate-secret' ? 'Rotate secret' :
+          confirmState?.type === 'disable' ? 'Disable app' :
+          confirmState?.type === 'enable' ? 'Enable app' :
+          confirmState?.type === 'delete' ? 'Delete app' :
+          confirmState?.type === 'remove-group' ? 'Remove group' :
+          confirmState?.type === 'remove-role-mapping' ? 'Remove mapping' :
+          'Confirm'
+        }
+        onClose={() => setConfirmState(null)}
+        onConfirm={async () => {
+          const state = confirmState;
+          setConfirmState(null);
+          if (state?.type === 'rotate-secret') await handleRotateSecret();
+          if (state?.type === 'disable') await handleDisable();
+          if (state?.type === 'enable') await handleEnable();
+          if (state?.type === 'delete') await handleDelete();
+          if (state?.type === 'remove-group' && state.group) await removeGroup(state.group.id);
+          if (state?.type === 'remove-role-mapping' && state.mapping) await removeRoleMapping(state.mapping.id);
+        }}
+      />
     </div>
   );
 }

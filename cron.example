@@ -1,0 +1,18 @@
+# SigAuth scheduled jobs
+#
+# Install with:
+#   crontab cron.example
+#
+# Or edit manually with:
+#   crontab -e
+#
+# Adjust the project path, Python path, and timezone as needed for your server.
+
+SHELL=/bin/zsh
+PATH=/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin
+
+# Weekly summary emails: every Monday at 9:00 AM
+0 9 * * 1 cd /Users/as-mac-1293/Desktop/mini-okta-v2.2/backend && venv/bin/python scripts/send_weekly_summaries.py >> /tmp/sigauth-weekly-summaries.log 2>&1
+
+# Subscription reminders and expiry checks: every day at 8:30 AM
+30 8 * * * cd /Users/as-mac-1293/Desktop/mini-okta-v2.2/backend && venv/bin/python scripts/process_subscription_notifications.py >> /tmp/sigauth-subscription-notifications.log 2>&1

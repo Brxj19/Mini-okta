@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import async_session_factory
 from app.redis_client import get_redis_pool
 from app.utils.jwt_utils import verify_token
+from app.services.browser_session_service import get_browser_session, read_browser_session_id, revoke_browser_session, touch_browser_session
 from app.services.token_service import get_token_by_jti
 from app.services.user_service import get_user, resolve_rbac
 from app.services.organization_service import get_organization, is_org_limited
@@ -54,43 +55,74 @@ async def get_current_user(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
 ) -> dict:
     """Extract and verify the current user from the Bearer token.
     
     Returns dict with: user_id, email, org_id, is_super_admin, roles, permissions, jti, claims
     """
-    if not credentials:
-        raise HTTPException(status_code=401, detail={"error": "unauthorized", "error_description": "Missing authorization header"})
+    claims = {}
+    jti = None
+    user_id = None
+    cookie_session_id = None
 
-    token = credentials.credentials
-    try:
-        claims = verify_token(token)
-    except JWTError as e:
-        raise HTTPException(status_code=401, detail={"error": "invalid_token", "error_description": f"Invalid token: {str(e)}"})
+    if credentials:
+        token = credentials.credentials
+        try:
+            claims = verify_token(token)
+        except JWTError as e:
+            raise HTTPException(status_code=401, detail={"error": "invalid_token", "error_description": f"Invalid token: {str(e)}"})
 
-    # Verify token is not revoked
-    jti = claims.get("jti")
-    if jti:
-        token_record = await get_token_by_jti(db, jti)
-        if token_record and token_record.revoked:
-            raise HTTPException(status_code=401, detail={"error": "token_revoked", "error_description": "Token has been revoked"})
+        jti = claims.get("jti")
+        if jti:
+            token_record = await get_token_by_jti(db, jti)
+            if token_record and token_record.revoked:
+                raise HTTPException(status_code=401, detail={"error": "token_revoked", "error_description": "Token has been revoked"})
 
-    # Get user
-    user_id = claims.get("sub")
-    if not user_id:
-        raise HTTPException(status_code=401, detail={"error": "invalid_token", "error_description": "Token missing sub claim"})
+        user_id = claims.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail={"error": "invalid_token", "error_description": "Token missing sub claim"})
+    else:
+        cookie_session_id = read_browser_session_id(request)
+        browser_session = await get_browser_session(redis, cookie_session_id)
+        if not browser_session:
+            raise HTTPException(status_code=401, detail={"error": "unauthorized", "error_description": "Missing authorization"})
+
+        user_id = browser_session.get("user_id")
+        if not user_id:
+            await revoke_browser_session(redis, cookie_session_id)
+            raise HTTPException(status_code=401, detail={"error": "invalid_session", "error_description": "Session is invalid"})
+        jti = browser_session.get("jti") or None
+        claims = {
+            "sub": user_id,
+            "email": browser_session.get("email", ""),
+            "org_id": browser_session.get("org_id", ""),
+            "aud": browser_session.get("client_id", "admin-console"),
+        }
 
     user = await get_user(db, UUID(user_id))
     if not user:
         raise HTTPException(status_code=401, detail={"error": "user_not_found", "error_description": "User not found"})
 
     if user.status != "active":
+        if cookie_session_id:
+            await revoke_browser_session(redis, cookie_session_id)
         raise HTTPException(status_code=403, detail={"error": "account_inactive", "error_description": f"Account is {user.status}"})
+
+    if cookie_session_id:
+        browser_session["user_id"] = str(user.id)
+        browser_session["org_id"] = str(user.org_id)
+        browser_session["email"] = user.email
+        browser_session["client_id"] = claims.get("aud", "admin-console")
+        browser_session["jti"] = jti or ""
+        browser_session["user_agent"] = request.headers.get("user-agent", "")
+        browser_session["ip_address"] = request.client.host if request.client else ""
+        await touch_browser_session(redis, cookie_session_id, browser_session)
 
     return {
         "user_id": UUID(user_id),
-        "email": claims.get("email", ""),
-        "org_id": UUID(claims.get("org_id", "")),
+        "email": claims.get("email", "") or user.email,
+        "org_id": UUID(str(claims.get("org_id") or user.org_id)),
         "is_super_admin": bool(claims.get("is_super_admin", False) or getattr(user, "is_super_admin", False)),
         "roles": claims.get("roles", []),
         "permissions": claims.get("permissions", []),

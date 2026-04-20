@@ -8,14 +8,14 @@ from uuid import UUID
 
 class BootstrapAdminCreate(BaseModel):
     email: EmailStr
-    password: str = Field(..., min_length=8)
+    password: Optional[str] = Field(default=None, min_length=8)
     first_name: Optional[str] = None
     last_name: Optional[str] = None
 
 
 class OrganizationCreate(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
-    slug: str = Field(..., min_length=2, max_length=100, pattern=r"^[a-z0-9\-]+$")
+    slug: Optional[str] = Field(default=None, min_length=2, max_length=100, pattern=r"^[a-z0-9\-]+$")
     display_name: Optional[str] = None
     settings: Optional[dict[str, Any]] = Field(default_factory=dict)
     bootstrap_admin: BootstrapAdminCreate
@@ -87,6 +87,9 @@ class PlanStatusResponse(BaseModel):
     subscription: Optional[dict[str, Any]] = None
     payments: list[dict[str, Any]] = Field(default_factory=list)
     last_paid_plan_code: Optional[str] = None
+    current_plan_rank: int = 0
+    renewal_available: bool = False
+    renewal_available_at: Optional[str] = None
 
 
 class BillingCheckoutCreate(BaseModel):

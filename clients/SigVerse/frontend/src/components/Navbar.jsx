@@ -25,10 +25,9 @@ export default function Navbar() {
   };
 
   const handleGlobalLogout = async () => {
-    const idToken = localStorage.getItem('jwt_token');
     setShowLogoutConfirm(false);
     await clearLocalSession();
-    logoutFromIdp(idToken);
+    await logoutFromIdp();
   };
 
   if (!user) return null;

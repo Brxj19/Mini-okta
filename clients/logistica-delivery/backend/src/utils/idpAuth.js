@@ -31,9 +31,6 @@ function deriveClientRole(claims) {
   const appRoles = Array.isArray(claims.app_roles)
     ? claims.app_roles.map((item) => String(item).toLowerCase())
     : [];
-  const roles = Array.isArray(claims.roles)
-    ? claims.roles.map((item) => String(item).toLowerCase())
-    : [];
 
   const adminRoles = getConfiguredRoleList(process.env.LOGISTICA_ADMIN_APP_ROLES, ['admin', 'app:admin']);
   const deliveryAgentRoles = getConfiguredRoleList(
@@ -49,8 +46,7 @@ function deriveClientRole(claims) {
   if (appRoles.some((role) => deliveryAgentRoles.includes(role))) return 'delivery_agent';
   if (appRoles.some((role) => endUserRoles.includes(role))) return 'end_user';
 
-  if (roles.includes('super_admin') || roles.includes('org:admin')) return 'admin';
-  return 'end_user';
+  return null;
 }
 
 function verifyIdpToken(token) {
@@ -72,4 +68,3 @@ module.exports = {
   deriveClientRole,
   verifyIdpToken
 };
-

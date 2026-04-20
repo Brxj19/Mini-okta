@@ -42,7 +42,7 @@ export default function Login() {
         setMfaCode('');
         return;
       }
-      login(res.data.id_token);
+      await login();
       navigate('/dashboard');
     } catch (err) {
       const detail = err.response?.data?.detail || {};
@@ -76,12 +76,12 @@ export default function Login() {
         code: mfaCode,
       });
       if (res.data?.backup_codes?.length) {
-        login(res.data.id_token);
+        await login();
         setBackupCodes(res.data.backup_codes || []);
         setStep('backup-codes');
         return;
       }
-      login(res.data.id_token);
+      await login();
       navigate('/dashboard');
     } catch (err) {
       const detail = err.response?.data?.detail || {};

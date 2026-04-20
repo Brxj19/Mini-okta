@@ -8,10 +8,14 @@ This is the detailed local setup guide for the full SigAuth project, including t
 | --- | ---: | --- |
 | SigAuth backend | `8000` | OIDC provider, admin APIs, MFA, notifications, billing, email queue |
 | SigAuth frontend | `3000` | Admin console and landing pages |
-| HR Portal demo client | `4000` | Sample web client |
-| Project Tracker demo client | `4001` | Sample SPA client |
+| HR Portal frontend | `4000` | Demo web client UI |
+| HR Portal backend | `4003` | Cookie-session backend for HR Portal |
+| Project Tracker frontend | `4001` | Demo SPA client UI |
+| Project Tracker backend | `4002` | Cookie-session backend for Project Tracker |
+| Logistica frontend | `4101` | Logistics demo client UI |
+| Logistica backend | `4100` | Cookie-session backend for Logistica |
 | SigVerse frontend | `5173` | OIDC-integrated sample learning app |
-| SigVerse backend | `3100` | Resource server validating SigAuth tokens |
+| SigVerse backend | `3100` | Learning-app backend with local app session cookie |
 | PostgreSQL | `5432` | Primary SigAuth database |
 | Redis | `6379` | Sessions, MFA/login cache, rate limiting |
 | MailHog SMTP | `1025` | Local outgoing email capture |
@@ -226,9 +230,46 @@ http://localhost:3000
 
 The landing page, login, signup, password reset flow, settings, notifications, billing page, and docs links all route from here.
 
-## 11. Optional Demo Client Apps
+## 11. Run All Four Demo Clients with the Session-Cookie Flow
 
-### HR Portal
+All client apps now follow the same safer pattern:
+
+- browser keeps only temporary PKCE values in `sessionStorage`
+- the client backend exchanges the authorization code with SigAuth
+- the client backend stores app auth in an `HttpOnly` session cookie
+- the frontend bootstraps from its own `/auth/session` endpoint
+- logout can stay local to the client app, or escalate into SigAuth logout
+
+Recommended terminal layout:
+
+1. terminal 1: SigAuth backend
+2. terminal 2: SigAuth frontend
+3. terminal 3: HR Portal backend
+4. terminal 4: HR Portal frontend
+5. terminal 5: Project Tracker backend
+6. terminal 6: Project Tracker frontend
+7. terminal 7: Logistica backend
+8. terminal 8: Logistica frontend
+9. terminal 9: SigVerse backend
+10. terminal 10: SigVerse frontend
+
+### 11.1 HR Portal
+
+Backend env:
+
+```bash
+cp clients/hr-portal/backend/.env.example clients/hr-portal/backend/.env
+```
+
+Backend:
+
+```bash
+cd clients/hr-portal/backend
+npm install
+npm run dev
+```
+
+Frontend:
 
 ```bash
 cd clients/hr-portal
@@ -236,7 +277,36 @@ npm install
 npm run dev
 ```
 
-### Project Tracker
+Open:
+
+```text
+http://localhost:4000
+```
+
+SigAuth application values:
+
+- client type: `spa`
+- client ID: `hr-portal-client-id`
+- redirect URI: `http://localhost:4000/callback`
+- post logout redirect URI: `http://localhost:4000`
+
+### 11.2 Project Tracker
+
+Backend env:
+
+```bash
+cp clients/project-tracker/backend/.env.example clients/project-tracker/backend/.env
+```
+
+Backend:
+
+```bash
+cd clients/project-tracker/backend
+npm install
+npm run dev
+```
+
+Frontend:
 
 ```bash
 cd clients/project-tracker
@@ -244,10 +314,106 @@ npm install
 npm run dev
 ```
 
-Seeded client configuration:
+Open:
 
-- HR Portal client ID: `hr-portal-client-id`
-- Project Tracker client ID: `project-tracker-client-id`
+```text
+http://localhost:4001
+```
+
+SigAuth application values:
+
+- client type: `spa`
+- client ID: `project-tracker-client-id`
+- redirect URI: `http://localhost:4001/callback`
+- post logout redirect URI: `http://localhost:4001`
+
+### 11.3 Logistica Delivery
+
+Backend env:
+
+```bash
+cp clients/logistica-delivery/backend/.env.example clients/logistica-delivery/backend/.env
+```
+
+If you already created the Logistica app in SigAuth, update `IDP_CLIENT_ID` in that file before you start the backend.
+
+Backend:
+
+```bash
+cd clients/logistica-delivery/backend
+npm install
+npm run dev
+```
+
+Frontend:
+
+```bash
+cd clients/logistica-delivery/frontend
+npm install
+npm run dev
+```
+
+Open:
+
+```text
+http://localhost:4101
+```
+
+SigAuth application values:
+
+- client type: `spa`
+- redirect URI: `http://localhost:4101/auth/callback`
+- post logout redirect URI: `http://localhost:4101`
+
+### 11.4 SigVerse
+
+Backend env:
+
+```bash
+cp clients/SigVerse/backend/.env.example clients/SigVerse/backend/.env
+```
+
+Then update these values inside `clients/SigVerse/backend/.env`:
+
+- `MYSQL_*` to your local or cloud SigVerse MySQL database
+- `MONGO_URI` to your SigVerse MongoDB instance
+- `IDP_CLIENT_ID` to the SigVerse app client ID from SigAuth
+
+Backend:
+
+```bash
+cd clients/SigVerse/backend
+npm install
+npm run dev
+```
+
+Frontend env:
+
+```bash
+cp clients/SigVerse/frontend/.env.example clients/SigVerse/frontend/.env
+```
+
+Then set `VITE_IDP_CLIENT_ID` in that file to match the SigVerse SigAuth app.
+
+Frontend:
+
+```bash
+cd clients/SigVerse/frontend
+npm install
+npm run dev -- --port 5173
+```
+
+Open:
+
+```text
+http://localhost:5173/login
+```
+
+SigAuth application values:
+
+- client type: `spa`
+- redirect URI: `http://localhost:5173/auth/callback`
+- post logout redirect URI: `http://localhost:5173`
 
 ## 12. Running Tests and Syntax Checks
 
@@ -296,11 +462,29 @@ source venv/bin/activate
 python scripts/process_subscription_notifications.py
 ```
 
-Example cron jobs:
+You can also copy the ready-to-use repo template:
+
+```bash
+cd /Users/as-mac-1293/Desktop/mini-okta-v2.2
+crontab cron.example
+```
+
+Or paste these entries manually with `crontab -e`:
 
 ```cron
-0 9 * * 1 cd /Users/as-mac-1293/Desktop/mini-okta-v2.2/backend && venv/bin/python scripts/send_weekly_summaries.py >> /tmp/sigauth-weekly.log 2>&1
-0 10 * * * cd /Users/as-mac-1293/Desktop/mini-okta-v2.2/backend && venv/bin/python scripts/process_subscription_notifications.py >> /tmp/sigauth-billing.log 2>&1
+0 9 * * 1 cd /Users/as-mac-1293/Desktop/mini-okta-v2.2/backend && venv/bin/python scripts/send_weekly_summaries.py >> /tmp/sigauth-weekly-summaries.log 2>&1
+30 8 * * * cd /Users/as-mac-1293/Desktop/mini-okta-v2.2/backend && venv/bin/python scripts/process_subscription_notifications.py >> /tmp/sigauth-subscription-notifications.log 2>&1
+```
+
+What each job does:
+
+- `send_weekly_summaries.py`: sends weekly summary emails to users who opted in
+- `process_subscription_notifications.py`: sends renewal reminders, cancel-at-period-end reminders, and downgrade expiry notices
+
+Verify the installed schedule with:
+
+```bash
+crontab -l
 ```
 
 ## 14. SigVerse Quick Start
@@ -417,15 +601,19 @@ Create or update:
 clients/SigVerse/backend/.env
 ```
 
-The important IdP-related values are:
+The important SigAuth session values are:
 
 ```dotenv
+FRONTEND_URL=http://localhost:5173
 IDP_ISSUER_URL=http://localhost:8000
 IDP_CLIENT_ID=<the SigVerse client_id from SigAuth>
-IDP_PUBLIC_KEY_PATH=../../../backend/secrets/public.pem
+IDP_REDIRECT_URI=http://localhost:5173/auth/callback
+POST_LOGOUT_REDIRECT_URI=http://localhost:5173
 
-SIGVERSE_ADMIN_GROUPS=sigverse-admins,admins
-SIGVERSE_INSTRUCTOR_GROUPS=sigverse-instructors,instructors
+APP_SESSION_COOKIE_NAME=sigverse_session
+APP_SESSION_SECRET=change-me-sigverse-session-secret
+APP_SESSION_TTL_SECONDS=28800
+APP_SESSION_COOKIE_SECURE=false
 
 SIGVERSE_ADMIN_APP_ROLES=app:admin,admin
 SIGVERSE_INSTRUCTOR_APP_ROLES=app:instructor,instructor
@@ -435,7 +623,8 @@ SIGVERSE_LEARNER_APP_ROLES=app:learner,learner
 Important note:
 
 - `IDP_CLIENT_ID` must match the SigVerse application created in SigAuth.
-- `IDP_PUBLIC_KEY_PATH` should point to the SigAuth backend public key so the SigVerse backend can validate tokens.
+- SigVerse now uses the backend code-exchange plus app-session-cookie flow, so its primary login path no longer depends on storing IdP tokens in the browser.
+- `SIGVERSE_*_APP_ROLES` is now the preferred mapping mechanism. Group-name env mapping is no longer the recommended pattern.
 
 Run SigVerse backend:
 
@@ -445,7 +634,7 @@ npm install
 npm run dev
 ```
 
-The backend also needs its own MySQL and MongoDB configuration in its `.env`. Keep those aligned with however you are already running SigVerse locally.
+The backend still needs its own MySQL and MongoDB configuration in its `.env`. Keep those aligned with however you are already running SigVerse locally.
 
 ## 17. SigVerse Frontend Configuration
 
@@ -495,7 +684,21 @@ Expected access behavior:
 - organization admins can log into any app in their organization
 - regular users need assignment via an application group
 - app role mappings are optional for access itself
-- SigVerse derives its internal role from app roles, app groups, or fallback org roles
+- SigVerse derives its internal role primarily from `app_roles`, with org admin fallback for platform admins
+- local logout should clear only the SigVerse app session unless the user explicitly chooses SigAuth logout
+
+## 18.1 What Each Demo Client Uses
+
+This is the current shared client pattern in the repo:
+
+| Client | Frontend URL | Backend URL | Session storage model |
+| --- | --- | --- | --- |
+| HR Portal | `http://localhost:4000` | `http://localhost:4003` | backend-managed `HttpOnly` cookie |
+| Project Tracker | `http://localhost:4001` | `http://localhost:4002` | backend-managed `HttpOnly` cookie |
+| Logistica | `http://localhost:4101` | `http://localhost:4100` | backend-managed `HttpOnly` cookie |
+| SigVerse | `http://localhost:5173` | `http://localhost:3100` | backend-managed `HttpOnly` cookie |
+
+The frontend in each client stores only temporary PKCE values during the redirect flow.
 
 ## 19. Demo-Friendly Manual Checks
 
@@ -572,12 +775,23 @@ That usually means one of these is missing:
 
 ## 21. Recommended Terminal Layout for a Full Demo
 
-Use 5 terminals:
+For the full multi-client demo, use 10 terminals:
 
 1. `backend` running `uvicorn`
-2. `frontend` running Vite
-3. `clients/SigVerse/backend` running Express
-4. `clients/SigVerse/frontend` running Vite
-5. MailHog logs or any extra one-off scripts
+2. `frontend` running the SigAuth admin console
+3. `clients/hr-portal/backend`
+4. `clients/hr-portal`
+5. `clients/project-tracker/backend`
+6. `clients/project-tracker`
+7. `clients/logistica-delivery/backend`
+8. `clients/logistica-delivery/frontend`
+9. `clients/SigVerse/backend`
+10. `clients/SigVerse/frontend`
 
-That setup is usually the smoothest for demos and debugging.
+If you are only demonstrating the main IdP plus SigVerse, the lighter 5-terminal setup is still enough:
+
+1. `backend`
+2. `frontend`
+3. `clients/SigVerse/backend`
+4. `clients/SigVerse/frontend`
+5. MailHog or any one-off script terminal

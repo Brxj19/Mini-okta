@@ -11,6 +11,18 @@ import UserAvatar from '../components/UserAvatar';
 import { isCloudinaryConfigured, uploadProfileImage } from '../utils/cloudinaryUpload';
 import { getDisplayName } from '../utils/profile';
 
+function formatSessionClient(clientId) {
+  if (!clientId || clientId === 'admin-console') return 'SigAuth Admin Console';
+  return clientId;
+}
+
+function formatSessionTimestamp(value) {
+  if (!value) return 'Unknown';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'Unknown';
+  return parsed.toLocaleString();
+}
+
 export default function Settings() {
   const { claims, profile, rememberBrowser, setRememberBrowserPreference, isSuperAdmin, orgId, setProfile } = useAuth();
   const [preferences, setPreferences] = useState({
@@ -498,17 +510,25 @@ export default function Settings() {
               {sessions.map((session) => (
                 <div key={session.jti} className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-gray-900">{session.client_id || 'Admin console session'}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="truncate text-sm font-medium text-gray-900">{formatSessionClient(session.client_id)}</p>
+                      {session.current ? (
+                        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-700">
+                          Current
+                        </span>
+                      ) : null}
+                    </div>
                     <p className="mt-1 truncate text-xs text-gray-500">{session.user_agent || 'Unknown browser'}</p>
                     <p className="mt-1 text-xs text-gray-500">IP: {session.ip_address || 'Unavailable'}</p>
+                    <p className="mt-1 text-xs text-gray-500">Last authenticated: {formatSessionTimestamp(session.created_at)}</p>
                   </div>
                   <Button
                     variant="secondary"
                     className="justify-center"
                     onClick={() => revokeSession(session.jti)}
-                    disabled={revokingSessionJti === session.jti}
+                    disabled={revokingSessionJti === session.jti || session.current}
                   >
-                    {revokingSessionJti === session.jti ? 'Revoking...' : 'Revoke session'}
+                    {revokingSessionJti === session.jti ? 'Revoking...' : session.current ? 'Current session' : 'Revoke session'}
                   </Button>
                 </div>
               ))}

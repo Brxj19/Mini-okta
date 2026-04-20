@@ -65,6 +65,7 @@ from app.services.mfa_service import (
 )
 from app.services.user_service import get_user, get_user_by_email, resolve_rbac, verify_user_email, update_password, get_user_groups
 from app.services.notification_service import send_admin_activity_notification, send_notification_event, send_org_admin_notification
+from app.services.session_service import register_provider_session, revoke_provider_session
 from app.services.token_service import (
     get_token_by_jti, revoke_token, issue_id_token, issue_refresh_token,
     issue_access_token, revoke_token_family, revoke_all_user_tokens, get_user_token_jtis,
@@ -182,12 +183,16 @@ async def _attach_browser_sso_cookie(
     redis: aioredis.Redis,
     user: User,
     request: Request,
+    client_id: str = "admin-console",
+    token_jti: str = "",
 ) -> None:
     browser_session_id = await create_browser_session(
         redis,
         user_id=str(user.id),
         org_id=str(user.org_id),
         email=user.email,
+        client_id=client_id,
+        token_jti=token_jti,
         user_agent=request.headers.get("user-agent", ""),
         ip_address=request.client.host if request.client else "",
     )
@@ -358,7 +363,7 @@ async def self_serve_signup_organization(
     slug = await _resolve_available_org_slug(db, preferred_slug)
 
     try:
-        org, admin_user = await create_organization_with_admin(
+        org, admin_user, _ = await create_organization_with_admin(
             db=db,
             name=body.organization_name.strip(),
             slug=slug,
@@ -475,8 +480,16 @@ async def login_endpoint(
 
         result = await issue_login_success(db, redis, user, ip, ua)
         await db.commit()
+        session_jti = str(result.pop("session_jti", "") or "")
         response = JSONResponse(content=result)
-        await _attach_browser_sso_cookie(response, redis=redis, user=user, request=request)
+        await _attach_browser_sso_cookie(
+            response,
+            redis=redis,
+            user=user,
+            request=request,
+            client_id="admin-console",
+            token_jti=session_jti,
+        )
         return response
     except AuthError as e:
         raise HTTPException(status_code=e.status_code, detail={"error": e.error, "error_description": e.description})
@@ -598,8 +611,16 @@ async def login_mfa_verify_endpoint(
     result["backup_codes"] = issued_backup_codes
     result["recovery_codes_remaining"] = count_recovery_codes(user.mfa_recovery_codes)
     await db.commit()
+    session_jti = str(result.pop("session_jti", "") or "")
     response = JSONResponse(content=result)
-    await _attach_browser_sso_cookie(response, redis=redis, user=user, request=request)
+    await _attach_browser_sso_cookie(
+        response,
+        redis=redis,
+        user=user,
+        request=request,
+        client_id=str(challenge.get("client_id") or "admin-console"),
+        token_jti=session_jti,
+    )
     return response
 
 
@@ -1153,15 +1174,16 @@ async def _handle_refresh_token_grant(db, redis, request, refresh_token_str, cli
         scopes=token_record.scopes,
     )
 
-    # Store session
-    session_data = json.dumps({
-        "jti": jti,
-        "user_id": str(user.id),
-        "client_id": client_id,
-        "ip_address": request.client.host if request.client else "",
-        "user_agent": request.headers.get("user-agent", ""),
-    })
-    await redis.set(f"session:{jti}", session_data, ex=expires_in)
+    await register_provider_session(
+        db=db,
+        redis=redis,
+        jti=jti,
+        user_id=str(user.id),
+        client_id=client_id,
+        ip_address=request.client.host if request.client else "",
+        user_agent=request.headers.get("user-agent", ""),
+        expires_in=expires_in,
+    )
 
     # Issue new refresh token
     new_refresh = await issue_refresh_token(db, user.id, user.org_id, client_id, token_record.scopes)
@@ -1259,8 +1281,7 @@ async def oidc_logout_endpoint(
         hinted_sub = hint_claims.get("sub")
         hinted_org_id = hint_claims.get("org_id")
         if hinted_jti:
-            await revoke_token(db, str(hinted_jti), reason="oidc_logout")
-            await redis.delete(f"session:{hinted_jti}")
+            await revoke_provider_session(db=db, redis=redis, jti=str(hinted_jti), reason="oidc_logout")
         if hinted_sub and hinted_org_id:
             try:
                 hinted_user_id = UUID(str(hinted_sub))
@@ -1304,16 +1325,16 @@ async def logout_endpoint(
     redis: aioredis.Redis = Depends(get_redis),
 ):
     """Logout: revoke ID Token and clear session."""
-    jti = current_user["jti"]
+    jti = current_user.get("jti")
 
-    await revoke_token(db, jti, reason="logout")
-    await redis.delete(f"session:{jti}")
+    if jti:
+        await revoke_provider_session(db=db, redis=redis, jti=jti, reason="logout")
 
-    await write_audit_event(
-        db, "token.revoked", "token", jti,
-        org_id=current_user["org_id"], actor_id=current_user["user_id"],
-        metadata={"jti": jti, "revoke_reason": "logout"}
-    )
+        await write_audit_event(
+            db, "token.revoked", "token", jti,
+            org_id=current_user["org_id"], actor_id=current_user["user_id"],
+            metadata={"jti": jti, "revoke_reason": "logout"}
+        )
 
     await revoke_browser_session(redis, read_browser_session_id(request))
 
@@ -1352,6 +1373,9 @@ async def userinfo_endpoint(
         family_name=user.last_name or "",
         roles=audience_claims["roles"],
         permissions=audience_claims["permissions"],
+        app_groups=audience_claims["app_groups"],
+        app_group_ids=audience_claims["app_group_ids"],
+        app_roles=audience_claims["app_roles"],
         org_id=str(user.org_id),
     )
 
@@ -1550,7 +1574,7 @@ async def password_reset_confirm(
 
     # Clear Redis sessions
     for jti in jtis:
-        await redis.delete(f"session:{jti}")
+        await revoke_provider_session(db=db, redis=redis, jti=jti, reason="password_reset")
 
     # Audit
     await write_audit_event(
@@ -1612,7 +1636,7 @@ async def password_setup_confirm(
     await revoke_all_user_tokens(db, token_record.user_id, reason="password_setup")
     await revoke_all_browser_sessions_for_user(redis, str(token_record.user_id))
     for jti in jtis:
-        await redis.delete(f"session:{jti}")
+        await revoke_provider_session(db=db, redis=redis, jti=jti, reason="password_setup")
 
     await write_audit_event(
         db, "user.password_setup.completed", "user", str(token_record.user_id),

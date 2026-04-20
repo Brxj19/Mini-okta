@@ -65,12 +65,23 @@ def password_reset_email_html(reset_url: str) -> str:
     )
 
 
-def invitation_email_html(setup_url: str, expiry_hours: int) -> str:
+def invitation_email_html(setup_url: str, expiry_hours: int, temporary_password: str | None = None) -> str:
+    temporary_password_block = ""
+    if temporary_password:
+        temporary_password_block = f"""
+        <div style="margin:0 0 16px 0;padding:14px;border:1px solid #dbeafe;border-radius:10px;background:#eff6ff;">
+          <p style="margin:0 0 6px 0;font-size:13px;color:#1e3a8a;font-weight:700;">Temporary credential</p>
+          <p style="margin:0;font-size:14px;color:#0f172a;"><strong>Password:</strong> <code style="font-size:13px;">{temporary_password}</code></p>
+          <p style="margin:8px 0 0 0;font-size:12px;color:#475569;">Use the setup link below to create your permanent password before first sign-in.</p>
+        </div>
+        """
+
     return _layout(
         "You have been invited",
         f"""
         <p style="margin:0 0 12px 0;">An administrator created a {PRODUCT_NAME} account for you.</p>
         <p style="margin:0 0 12px 0;">Complete your account setup and create your password using the link below.</p>
+        {temporary_password_block}
         <p style="margin:0 0 16px 0;">
           <a href="{setup_url}" style="display:inline-block;padding:10px 14px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:8px;">Set Up Account</a>
         </p>

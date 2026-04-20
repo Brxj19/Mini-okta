@@ -13,6 +13,7 @@ from app.schemas.application import ApplicationListResponse, ApplicationResponse
 from app.schemas.user import (
     AccountPreferencesResponse,
     AccountPreferencesUpdate,
+    CurrentSessionResponse,
     CurrentUserProfileResponse,
     CurrentUserProfileUpdate,
     MfaCodeVerifyRequest,
@@ -47,10 +48,33 @@ from app.services.notification_service import (
     set_notification_preference,
 )
 from app.services.organization_service import get_org_access_tier, get_organization
-from app.services.user_service import update_current_user_profile
+from app.services.user_service import resolve_rbac, update_current_user_profile
 from app.utils.crypto_utils import verify_password
 
 router = APIRouter(prefix="/api/v1/me", tags=["me"])
+
+
+@router.get("/context", response_model=CurrentSessionResponse)
+async def get_my_session_context_endpoint(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return current session context for the admin console."""
+    user = current_user["user"]
+    if user.is_super_admin:
+        roles = ["super_admin"]
+        permissions = ["*"]
+    else:
+        roles, permissions = await resolve_rbac(db, user.id, user.org_id)
+
+    return CurrentSessionResponse(
+        user_id=user.id,
+        email=user.email,
+        org_id=user.org_id,
+        is_super_admin=bool(user.is_super_admin),
+        roles=roles,
+        permissions=permissions,
+    )
 
 
 @router.get("/profile", response_model=CurrentUserProfileResponse)

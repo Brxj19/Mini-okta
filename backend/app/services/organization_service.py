@@ -1,6 +1,7 @@
 """Organization service: CRUD, suspend, activate, and onboarding."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+import re
 from urllib.parse import quote, urlparse
 from typing import Any, Optional
 from uuid import UUID
@@ -14,6 +15,8 @@ from app.models.role import Role
 from app.models.user import User
 from app.utils.crypto_utils import hash_password, validate_password_policy
 from app.utils.pagination import encode_cursor, decode_cursor, build_pagination_response
+from app.config import settings
+from app.services.user_service import generate_temporary_password
 
 
 DEFAULT_SELF_SERVE_LIMITS = {
@@ -95,19 +98,38 @@ async def create_organization(db: AsyncSession, name: str, slug: str, display_na
     return org
 
 
+def slugify_org_name(name: str) -> str:
+    """Convert organization name to a safe slug."""
+    cleaned = re.sub(r"[^a-z0-9]+", "-", (name or "").strip().lower()).strip("-")
+    return cleaned or "org"
+
+
+async def resolve_available_org_slug(db: AsyncSession, preferred_slug: str) -> str:
+    """Return preferred slug if free, otherwise append numeric suffix."""
+    candidate = preferred_slug
+    suffix = 2
+    while True:
+        existing = await get_organization_by_slug(db, candidate)
+        if not existing:
+            return candidate
+        candidate = f"{preferred_slug}-{suffix}"
+        suffix += 1
+
+
 async def create_organization_with_admin(
     db: AsyncSession,
     name: str,
     slug: str,
     admin_email: str,
-    admin_password: str,
+    admin_password: Optional[str] = None,
     admin_first_name: Optional[str] = None,
     admin_last_name: Optional[str] = None,
     display_name: Optional[str] = None,
     org_settings: Optional[dict] = None,
-) -> tuple[Organization, User]:
+) -> tuple[Organization, User, str]:
     """Create an organization and bootstrap its first org admin."""
-    valid, error = validate_password_policy(admin_password)
+    password_to_store = admin_password or generate_temporary_password()
+    valid, error = validate_password_policy(password_to_store)
     if not valid:
         raise ValueError(error)
 
@@ -125,12 +147,15 @@ async def create_organization_with_admin(
     admin_user = User(
         org_id=org.id,
         email=admin_email,
-        password_hash=hash_password(admin_password),
+        password_hash=hash_password(password_to_store),
         first_name=admin_first_name,
         last_name=admin_last_name,
-        email_verified=True,
+        email_verified=False,
         status="active",
         is_super_admin=False,
+        must_change_password=True,
+        invited_at=datetime.now(timezone.utc),
+        invitation_expires_at=datetime.now(timezone.utc) + timedelta(hours=settings.INVITATION_LINK_TTL_HOURS),
     )
     db.add(admin_user)
     await db.flush()
@@ -154,7 +179,7 @@ async def create_organization_with_admin(
     db.add(GroupRole(group_id=admin_group.id, role_id=admin_role.id))
     await db.flush()
 
-    return org, admin_user
+    return org, admin_user, password_to_store
 
 
 def get_org_access_tier(settings: Optional[dict[str, Any]]) -> str:

@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import PageHeader from '../components/PageHeader';
 import { ArrowLeftIcon } from '../components/Icons';
 import CopyButton from '../components/CopyButton';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 const DEFAULT_SETTINGS = {
   allow_social_login: false,
@@ -30,6 +31,7 @@ export default function OrganizationDetail() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isEditing, setIsEditing] = useState(false);
+  const [confirmState, setConfirmState] = useState(null);
   const [form, setForm] = useState({
     display_name: '',
     ...DEFAULT_SETTINGS,
@@ -107,7 +109,6 @@ export default function OrganizationDetail() {
   };
 
   const handleSuspend = async () => {
-    if (!confirm('Suspend this organization?')) return;
     const res = await api.post(`/api/v1/admin/organizations/${id}/suspend`);
     setOrg(res.data);
     setSuccess('Organization suspended.');
@@ -138,7 +139,6 @@ export default function OrganizationDetail() {
   };
 
   const handleDeleteOrganization = async () => {
-    if (!confirm('Delete this organization? This is a soft delete and the tenant will disappear from normal operations.')) return;
     await api.delete(`/api/v1/admin/organizations/${id}`);
     navigate('/organizations');
   };
@@ -158,7 +158,7 @@ export default function OrganizationDetail() {
         description="Update tenant presentation and policy settings without editing raw JSON."
         actions={
           <div className="flex gap-3">
-            {org.status === 'active' && <button onClick={handleSuspend} className="btn-danger">Suspend</button>}
+            {org.status === 'active' && <button onClick={() => setConfirmState('suspend')} className="btn-danger">Suspend</button>}
             {org.status === 'suspended' && <button onClick={handleActivate} className="btn-primary">Activate</button>}
             {accessTier === 'limited' && org.status === 'active' && (
               <button onClick={handleVerifyEnterprise} className="btn-primary">
@@ -175,7 +175,7 @@ export default function OrganizationDetail() {
                 Set Limited
               </button>
             )}
-            <button onClick={handleDeleteOrganization} className="btn-danger">
+            <button onClick={() => setConfirmState('delete')} className="btn-danger">
               Delete
             </button>
           </div>
@@ -328,6 +328,24 @@ export default function OrganizationDetail() {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={!!confirmState}
+        title={confirmState === 'suspend' ? 'Suspend organization?' : 'Delete organization?'}
+        description={
+          confirmState === 'suspend'
+            ? 'This tenant will be suspended and normal sign-in should stop until reactivated.'
+            : 'This is a soft delete. The tenant will disappear from normal operations.'
+        }
+        confirmLabel={confirmState === 'suspend' ? 'Suspend organization' : 'Delete organization'}
+        onClose={() => setConfirmState(null)}
+        onConfirm={async () => {
+          const action = confirmState;
+          setConfirmState(null);
+          if (action === 'suspend') await handleSuspend();
+          if (action === 'delete') await handleDeleteOrganization();
+        }}
+      />
     </div>
   );
 }

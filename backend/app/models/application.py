@@ -26,6 +26,7 @@ class Application(Base):
     id_token_lifetime = Column(Integer, nullable=False, default=3600)
     access_token_lifetime = Column(Integer, nullable=True, default=3600)
     refresh_token_enabled = Column(Boolean, nullable=False, default=False)
+    require_explicit_role_mappings = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

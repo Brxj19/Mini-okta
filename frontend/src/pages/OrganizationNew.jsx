@@ -19,7 +19,6 @@ export default function OrganizationNew() {
     display_name: '',
     bootstrap_admin: {
       email: '',
-      password: '',
       first_name: '',
       last_name: '',
     },
@@ -86,8 +85,9 @@ export default function OrganizationNew() {
               <input required value={form.name} onChange={e => setForm(current => ({ ...current, name: e.target.value }))} className="input-field" placeholder="acme" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-dark-300 mb-1">Slug *</label>
-              <input required value={form.slug} onChange={e => setForm(current => ({ ...current, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') }))} className="input-field" placeholder="acme" />
+              <label className="block text-sm font-medium text-dark-300 mb-1">Slug</label>
+              <input value={form.slug} onChange={e => setForm(current => ({ ...current, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') }))} className="input-field" placeholder="Leave blank to auto-generate" />
+              <p className="mt-1 text-xs text-dark-500">If left empty, SigAuth will generate an available slug from the organization name.</p>
             </div>
           </div>
           <div>
@@ -115,10 +115,9 @@ export default function OrganizationNew() {
             <label className="block text-sm font-medium text-dark-300 mb-1">Admin Email *</label>
             <input type="email" required value={form.bootstrap_admin.email} onChange={e => updateBootstrapAdmin('email', e.target.value)} className="input-field" />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-dark-300 mb-1">Temporary Password *</label>
-            <input type="password" required value={form.bootstrap_admin.password} onChange={e => updateBootstrapAdmin('password', e.target.value)} className="input-field" placeholder="Min 12 chars, 1 upper, 1 lower, 1 digit, 1 special" />
-          </div>
+          <p className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+            SigAuth will generate a temporary credential automatically and email the first org admin a secure setup link.
+          </p>
         </section>
 
         <section className="space-y-4">

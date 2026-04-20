@@ -2,8 +2,21 @@ const jwt = require('jsonwebtoken');
 const { sendError } = require('../utils/response');
 const UserRepository = require('../repositories/UserRepository');
 const { deriveSigVerseRole, verifyIdpToken } = require('../utils/idpAuth');
+const { readSessionFromRequest } = require('../../../shared/sessionAuth');
+
+const SESSION_COOKIE_NAME = process.env.APP_SESSION_COOKIE_NAME || 'sigverse_session';
+const SESSION_SECRET = process.env.APP_SESSION_SECRET || 'sigverse-dev-session-secret';
 
 module.exports = async (req, res, next) => {
+  const cookieSession = readSessionFromRequest(req, {
+    secret: SESSION_SECRET,
+    cookieName: SESSION_COOKIE_NAME,
+  });
+  if (cookieSession?.user) {
+    req.user = cookieSession.user;
+    return next();
+  }
+
   const authHeader = req.headers['authorization'];
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return sendError(res, 401, 'No token provided');
@@ -21,6 +34,9 @@ module.exports = async (req, res, next) => {
 
       if (!email) {
         return sendError(res, 401, 'IDP token does not include an email');
+      }
+      if (!role) {
+        return sendError(res, 403, 'No recognized SigVerse application role was issued for this account.');
       }
 
       localUser = await UserRepository.findByEmail(email);

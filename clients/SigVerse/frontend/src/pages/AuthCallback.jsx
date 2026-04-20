@@ -20,7 +20,7 @@ export default function AuthCallback() {
     if (code && state) {
       hasExchangedRef.current = true;
       exchangeIdpCode({ code, state })
-        .then(({ id_token, access_token }) => login({ idToken: id_token, accessToken: access_token || id_token }))
+        .then(() => login())
         .then(() => navigate('/dashboard', { replace: true }))
         .catch(() => navigate('/login', { replace: true }));
     } else {

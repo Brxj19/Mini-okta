@@ -62,6 +62,8 @@ async def create_browser_session(
     user_id: str,
     org_id: str,
     email: str,
+    client_id: str = "admin-console",
+    token_jti: str = "",
     user_agent: str = "",
     ip_address: str = "",
 ) -> str:
@@ -72,6 +74,8 @@ async def create_browser_session(
         "user_id": user_id,
         "org_id": org_id,
         "email": email,
+        "client_id": client_id,
+        "jti": token_jti,
         "user_agent": user_agent,
         "ip_address": ip_address,
         "created_at": now_iso,

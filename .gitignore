@@ -82,3 +82,8 @@ clients/*/build/
 .cache/
 .eslintcache
 
+API_ENDPOINT_MATRIX.md
+division_rolewise.md
+division.md
+backend/tests/
+frontend/tests/

@@ -6,6 +6,7 @@ import GroupMembershipTable from '../components/GroupMembershipTable';
 import RoleBadge from '../components/RoleBadge';
 import PageHeader from '../components/PageHeader';
 import { ArrowLeftIcon } from '../components/Icons';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { hasPermission, hasRole } from '../utils/permissions';
 
 export default function GroupDetail() {
@@ -22,6 +23,7 @@ export default function GroupDetail() {
   const [editDescription, setEditDescription] = useState('');
   const [saveError, setSaveError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [confirmState, setConfirmState] = useState(null);
 
   const fetchGroup = async () => {
     try {
@@ -67,7 +69,6 @@ export default function GroupDetail() {
   };
 
   const removeRole = async (roleId) => {
-    if (!confirm('Remove this role from group?')) return;
     try {
       await api.delete(`/api/v1/organizations/${orgId}/groups/${id}/roles/${roleId}`);
       fetchGroupRoles();
@@ -75,7 +76,6 @@ export default function GroupDetail() {
   };
 
   const handleDelete = async () => {
-    if (!confirm('Delete this group? All memberships and role assignments will be removed.')) return;
     await api.delete(`/api/v1/organizations/${orgId}/groups/${id}`);
     navigate('/groups');
   };
@@ -110,6 +110,9 @@ export default function GroupDetail() {
   const canDeleteGroup = hasPermission(claims, 'group:delete');
   const canUpdateGroup = hasPermission(claims, 'group:update');
   const blockProtectedGroupActions = groupIsProtected && !actorCanManageProtectedGroup;
+  const canEditGroup = canUpdateGroup && !blockProtectedGroupActions;
+  const canManageGroupRoles = canAssignRoles && !blockProtectedGroupActions;
+  const canDeleteCurrentGroup = canDeleteGroup && !blockProtectedGroupActions;
 
   return (
     <div>
@@ -124,20 +127,26 @@ export default function GroupDetail() {
         description={group.description || 'Manage memberships and effective roles for this directory group.'}
         actions={
           <div className="flex flex-wrap items-center gap-3">
-            {canUpdateGroup && !blockProtectedGroupActions ? (
-              <button
-                onClick={() => {
-                  setEditing((value) => !value);
-                  setSaveError('');
-                  setEditName(group.name || '');
-                  setEditDescription(group.description || '');
-                }}
-                className="btn-secondary text-sm"
-              >
-                {editing ? 'Cancel Edit' : 'Edit Group'}
-              </button>
-            ) : null}
-            {canDeleteGroup && !blockProtectedGroupActions ? <button onClick={handleDelete} className="btn-danger text-sm">Delete Group</button> : null}
+            <button
+              onClick={() => {
+                if (!canEditGroup) return;
+                setEditing((value) => !value);
+                setSaveError('');
+                setEditName(group.name || '');
+                setEditDescription(group.description || '');
+              }}
+              className={`btn-secondary text-sm ${canEditGroup ? '' : 'cursor-not-allowed opacity-55'}`}
+              disabled={!canEditGroup}
+            >
+              {editing ? 'Cancel Edit' : 'Edit Group'}
+            </button>
+            <button
+              onClick={() => setConfirmState({ type: 'delete' })}
+              className={`btn-danger text-sm ${canDeleteCurrentGroup ? '' : 'cursor-not-allowed opacity-55'}`}
+              disabled={!canDeleteCurrentGroup}
+            >
+              Delete Group
+            </button>
           </div>
         }
       />
@@ -148,7 +157,7 @@ export default function GroupDetail() {
         </div>
       ) : null}
 
-      {editing && canUpdateGroup && !blockProtectedGroupActions ? (
+      {editing && canEditGroup ? (
         <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <div>
@@ -224,11 +233,11 @@ export default function GroupDetail() {
           <h2 className="text-lg font-semibold mb-4">Assigned Roles</h2>
           {canAssignRoles ? (
             <div className="flex gap-3 mb-6">
-              <select value={selectedRole} onChange={e => setSelectedRole(e.target.value)} className="input-field max-w-xs" disabled={blockProtectedGroupActions}>
+              <select value={selectedRole} onChange={e => setSelectedRole(e.target.value)} className="input-field max-w-xs" disabled={!canManageGroupRoles}>
                 <option value="">Select role to assign...</option>
                 {availableRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
               </select>
-              <button onClick={assignRole} disabled={!selectedRole || blockProtectedGroupActions} className="btn-primary text-sm">Assign</button>
+              <button onClick={assignRole} disabled={!selectedRole || !canManageGroupRoles} className={`btn-primary text-sm ${canManageGroupRoles ? '' : 'cursor-not-allowed opacity-55'}`}>Assign</button>
             </div>
           ) : null}
           <div className="space-y-3">
@@ -239,7 +248,7 @@ export default function GroupDetail() {
                   <p className="mt-1 text-xs text-slate-500">{r.description}</p>
                 </div>
                 {canAssignRoles ? (
-                  <button onClick={() => removeRole(r.id)} disabled={blockProtectedGroupActions} className="text-sm text-red-700 hover:text-red-800 disabled:cursor-not-allowed disabled:text-slate-400">Remove</button>
+                  <button onClick={() => setConfirmState({ type: 'removeRole', role: r })} disabled={!canManageGroupRoles} className="text-sm text-red-700 hover:text-red-800 disabled:cursor-not-allowed disabled:text-slate-400">Remove</button>
                 ) : null}
               </div>
             ))}
@@ -247,6 +256,26 @@ export default function GroupDetail() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!confirmState}
+        title={confirmState?.type === 'delete' ? 'Delete group?' : 'Remove role from group?'}
+        description={
+          confirmState?.type === 'delete'
+            ? 'All memberships and role assignments will be removed from this group.'
+            : confirmState?.role
+              ? `${confirmState.role.name} will no longer be assigned to this group.`
+              : ''
+        }
+        confirmLabel={confirmState?.type === 'delete' ? 'Delete group' : 'Remove role'}
+        onClose={() => setConfirmState(null)}
+        onConfirm={async () => {
+          const state = confirmState;
+          setConfirmState(null);
+          if (state?.type === 'delete') await handleDelete();
+          if (state?.type === 'removeRole' && state.role) await removeRole(state.role.id);
+        }}
+      />
     </div>
   );
 }

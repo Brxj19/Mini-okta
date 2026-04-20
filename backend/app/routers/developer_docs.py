@@ -372,8 +372,8 @@ async def developer_docs_page():
         <h2>Comprehensive Developer Documentation</h2>
         <p>
           Use this guide to integrate your web app, SPA, mobile app, or backend service with {PRODUCT_NAME}.
-          It covers registration, authorization, token exchange, validation, API usage, failure modes, and
-          production controls in one place.
+          It reflects the latest recommended flow in this project: the browser performs the PKCE authorize redirect,
+          your client backend exchanges the code, validates claims, and then creates an app-owned session cookie.
         </p>
         <div class="badges">
           <span class="badge">OIDC Compatible</span>
@@ -391,24 +391,25 @@ async def developer_docs_page():
 
       <section id="quickstart" class="section">
         <h3>Quickstart</h3>
-        <p>For a standard SPA or web integration, follow this sequence:</p>
+        <p>For a standard client application in this project, follow this sequence:</p>
         <ol>
           <li>Create or obtain a {PRODUCT_NAME} client application and configure a strict redirect URI.</li>
           <li>Generate PKCE values (<code>code_verifier</code>, <code>code_challenge</code>), plus <code>state</code> and <code>nonce</code>.</li>
           <li>Redirect users to <code>{authorize_url}</code>.</li>
-          <li>On callback, validate state and exchange code at <code>{token_url}</code>.</li>
-          <li>Validate returned tokens and fetch profile data from <code>{userinfo_url}</code>.</li>
-          <li>On sign-out, call <code>{logout_url}</code> and clear local app session state.</li>
+          <li>On callback, post the returned <code>code</code> and stored PKCE values to your own client backend.</li>
+          <li>Your client backend exchanges the code at <code>{token_url}</code>, validates the response, optionally fetches <code>{userinfo_url}</code>, and creates an <code>HttpOnly</code> app session cookie.</li>
+          <li>Your frontend bootstraps from your own backend session endpoint, not from browser-stored bearer tokens.</li>
+          <li>On sign-out, decide between local app logout and provider logout via <code>{logout_url}</code>.</li>
         </ol>
 
         <div class="grid-2">
           <div class="card">
             <strong>Public clients (SPA/mobile)</strong>
-            <span>Use PKCE. Do not ship client secrets in frontend apps.</span>
+            <span>Use PKCE. Keep only short-lived PKCE state in browser storage and let your backend create the durable app session.</span>
           </div>
           <div class="card">
             <strong>Confidential clients (backend)</strong>
-            <span>Store secrets server-side and rotate them on a defined schedule.</span>
+            <span>Store secrets server-side, exchange the authorization code there, and issue your own secure session cookie to the frontend.</span>
           </div>
         </div>
       </section>
@@ -443,10 +444,16 @@ MINI_OKTA_SCOPES=openid profile email</pre>
           <li>Derive <code>code_challenge = BASE64URL(SHA256(code_verifier))</code>.</li>
           <li>Redirect to <code>/authorize</code> with PKCE parameters.</li>
           <li>User authenticates and consents (if enabled).</li>
-          <li>Client receives <code>code</code> at callback URI.</li>
-          <li>Backend or SPA exchanges code for tokens at <code>/token</code>.</li>
-          <li>Validate ID token and establish your own app session.</li>
+          <li>Your frontend callback page receives <code>code</code> at the registered redirect URI.</li>
+          <li>Your frontend immediately forwards that <code>code</code>, plus <code>state</code> and <code>code_verifier</code>, to your own client backend.</li>
+          <li>Your client backend exchanges the code for tokens at <code>/token</code>.</li>
+          <li>Your client backend validates claims, derives local role/session state, and creates an app-owned session cookie.</li>
+          <li>Your frontend reads the logged-in user from your own backend session endpoint.</li>
         </ol>
+        <div class="card" style="margin-top:12px;">
+          <strong>Recommended storage pattern</strong>
+          <span>Do not persist SigAuth bearer tokens in <code>localStorage</code> for your app session. Use <code>HttpOnly</code> cookies for the app session and keep only temporary PKCE values in <code>sessionStorage</code>.</span>
+        </div>
       </section>
 
       <section id="token-validation" class="section">
@@ -490,8 +497,8 @@ MINI_OKTA_SCOPES=openid profile email</pre>
           <tbody>
             <tr><td>GET</td><td><code>{authorize_url}</code></td><td>Starts user authentication and consent flow.</td></tr>
             <tr><td>POST</td><td><code>{token_url}</code></td><td>Exchanges authorization code for tokens.</td></tr>
-            <tr><td>GET</td><td><code>{userinfo_url}</code></td><td>Returns profile claims for authenticated user.</td></tr>
-            <tr><td>POST</td><td><code>{logout_url}</code></td><td>Ends provider-side session/logout flow.</td></tr>
+            <tr><td>GET</td><td><code>{userinfo_url}</code></td><td>Returns identity plus app-scoped claims such as <code>app_roles</code> for the authenticated client audience.</td></tr>
+            <tr><td>POST</td><td><code>{logout_url}</code></td><td>Ends provider-side session/logout flow. Use this for full SigAuth logout, not ordinary local app logout.</td></tr>
             <tr><td>GET</td><td><code>{discovery_url}</code></td><td>Well-known metadata for clients/libraries.</td></tr>
             <tr><td>GET</td><td><code>{jwks_url}</code></td><td>Public keys for token signature validation.</td></tr>
           </tbody>
@@ -517,16 +524,35 @@ MINI_OKTA_SCOPES=openid profile email</pre>
 window.location.href = "{authorize_url}?" + params.toString();</pre>
         </div>
 
-        <h4>cURL: token exchange</h4>
+        <h4>Node.js backend: token exchange and session bootstrap</h4>
         <div class="code-wrap">
-          <div class="code-head"><span>cURL</span><button class="copy-btn" data-copy="curl-token">Copy</button></div>
-          <pre id="curl-token">curl -X POST "{token_url}" \\
-  -H "Content-Type: application/x-www-form-urlencoded" \\
-  -d "grant_type=authorization_code" \\
-  -d "code=AUTH_CODE" \\
-  -d "redirect_uri=http://localhost:4000/callback" \\
-  -d "client_id=your-client-id" \\
-  -d "code_verifier=YOUR_CODE_VERIFIER"</pre>
+          <div class="code-head"><span>Node.js</span><button class="copy-btn" data-copy="node-exchange">Copy</button></div>
+          <pre id="node-exchange">const tokenResponse = await fetch("{token_url}", {{
+  method: "POST",
+  headers: {{ "Content-Type": "application/x-www-form-urlencoded" }},
+  body: new URLSearchParams({{
+    grant_type: "authorization_code",
+    code: authCode,
+    redirect_uri: "http://localhost:4000/callback",
+    client_id: process.env.SIGAUTH_CLIENT_ID,
+    code_verifier: codeVerifier,
+  }}),
+}});
+
+if (!tokenResponse.ok) throw new Error("token_exchange_failed");
+
+const tokenSet = await tokenResponse.json();
+const profileResponse = await fetch("{userinfo_url}", {{
+  headers: {{ Authorization: `Bearer ${{tokenSet.access_token}}` }},
+}});
+const profile = await profileResponse.json();
+
+// Create your own app session cookie here.
+res.cookie("app_session", signedSessionValue, {{
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax",
+}});</pre>
         </div>
 
         <h4>Node.js: userinfo call</h4>
@@ -571,7 +597,7 @@ print(response.json())</pre>
             <tr><td>Invalid redirect URI</td><td>Show integration misconfiguration message to developer/admin only.</td><td class="status-danger">Block</td></tr>
             <tr><td>Unauthorized user for app</td><td>Show clear access denied message with support/contact path.</td><td class="status-warn">Handle gracefully</td></tr>
             <tr><td>Invalid credentials</td><td>Show generic error text, do not reveal account existence.</td><td class="status-warn">Retry allowed</td></tr>
-            <tr><td>Expired code/token</td><td>Restart auth flow and clear stale local state.</td><td class="status-ok">Recoverable</td></tr>
+            <tr><td>Expired code/token</td><td>Restart auth flow, clear stale PKCE values, and rebuild the app session through a fresh redirect.</td><td class="status-ok">Recoverable</td></tr>
           </tbody>
         </table>
       </section>
@@ -580,10 +606,11 @@ print(response.json())</pre>
         <h3>Security Hardening</h3>
         <ul>
           <li>Always enforce HTTPS in production and secure cookies (<code>HttpOnly</code>, <code>Secure</code>, <code>SameSite</code>).</li>
-          <li>Store tokens server-side when possible. For SPA, minimize persistence and implement strict CSP.</li>
+          <li>Prefer backend code exchange plus <code>HttpOnly</code> app session cookies over frontend token persistence.</li>
           <li>Rotate client secrets and signing keys based on policy.</li>
           <li>Validate redirect URIs exactly; never allow wildcard callbacks.</li>
           <li>Implement global session invalidation after password reset events.</li>
+          <li>Model logout as two actions when needed: local app logout and full SigAuth logout.</li>
           <li>Alert and rate-limit repeated failed login attempts.</li>
         </ul>
       </section>
@@ -603,6 +630,9 @@ print(response.json())</pre>
         <h3>Troubleshooting</h3>
         <h4>I see internal server error after clicking "Sign in with IdP"</h4>
         <p>Check app redirect URI registration first. Mismatch between requested redirect URI and configured URI is a common root cause.</p>
+
+        <h4>Users fall into the wrong client-app role</h4>
+        <p>For strict role-based apps, enable explicit role mappings and make sure the token path your client uses reads <code>app_roles</code> from the audience-specific claims or <code>/userinfo</code>.</p>
 
         <h4>Users are not logged out in other tabs after password reset</h4>
         <p>Ensure your frontend listens to shared logout-sync events and force-navigates all tabs to <code>/login</code> after session invalidation.</p>

@@ -139,6 +139,7 @@ async def seed_sigverse():
                     id_token_lifetime=3600,
                     access_token_lifetime=3600,
                     refresh_token_enabled=False,
+                    require_explicit_role_mappings=True,
                     status="active",
                 )
                 db.add(app)
@@ -164,6 +165,9 @@ async def seed_sigverse():
                     changed = True
                 if app.status != "active":
                     app.status = "active"
+                    changed = True
+                if not app.require_explicit_role_mappings:
+                    app.require_explicit_role_mappings = True
                     changed = True
                 if changed:
                     await db.flush()
