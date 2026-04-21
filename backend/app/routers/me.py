@@ -42,6 +42,7 @@ from app.services.mfa_service import (
 )
 from app.services.notification_service import (
     SECURITY_ALERT_EVENT_KEYS,
+    SUPPORTED_NOTIFICATION_EVENTS,
     WEEKLY_SUMMARY_EVENT,
     is_notification_enabled,
     send_notification_event,
@@ -247,6 +248,52 @@ async def update_my_preferences_endpoint(
         security_alerts=body.security_alerts,
         weekly_summary_emails=body.weekly_summary_emails,
     )
+
+
+@router.get("/notification-preferences")
+async def get_my_notification_preferences_endpoint(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return effective per-event notification preferences for the signed-in user."""
+    preferences = []
+    for event_key in sorted(SUPPORTED_NOTIFICATION_EVENTS):
+        enabled = await is_notification_enabled(db, current_user["user_id"], event_key)
+        preferences.append({"event_key": event_key, "enabled": enabled})
+    return {"user_id": str(current_user["user_id"]), "preferences": preferences}
+
+
+@router.put("/notification-preferences")
+async def update_my_notification_preferences_endpoint(
+    body: dict,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update per-event notification preferences for the signed-in user."""
+    updates = body.get("preferences", [])
+    if not isinstance(updates, list):
+        raise HTTPException(400, detail={"error": "invalid_request", "error_description": "preferences must be a list"})
+
+    normalized = []
+    for item in updates:
+        event_key = item.get("event_key")
+        enabled = item.get("enabled")
+        if event_key not in SUPPORTED_NOTIFICATION_EVENTS or not isinstance(enabled, bool):
+            raise HTTPException(400, detail={"error": "invalid_request", "error_description": "Invalid preference payload"})
+        pref = await set_notification_preference(db, current_user["user_id"], event_key, enabled)
+        normalized.append({"event_key": pref.event_key, "enabled": pref.enabled})
+
+    await write_audit_event(
+        db=db,
+        event_type="user.notification_preferences.updated",
+        resource_type="user",
+        resource_id=str(current_user["user_id"]),
+        org_id=current_user["org_id"],
+        actor_id=current_user["user_id"],
+        metadata={"updated": normalized},
+    )
+
+    return {"user_id": str(current_user["user_id"]), "preferences": normalized}
 
 
 @router.get("/mfa", response_model=MfaStatusResponse)

@@ -26,10 +26,11 @@ function formatSessionTimestamp(value) {
 export default function Settings() {
   const { claims, profile, rememberBrowser, setRememberBrowserPreference, isSuperAdmin, orgId, setProfile } = useAuth();
   const [preferences, setPreferences] = useState({
-    securityAlerts: false,
-    weeklySummary: false,
     rememberSession: rememberBrowser,
   });
+  const [notificationPreferences, setNotificationPreferences] = useState([]);
+  const [notificationPreferencesLoading, setNotificationPreferencesLoading] = useState(true);
+  const [notificationPreferencesSaving, setNotificationPreferencesSaving] = useState(false);
   const [profileForm, setProfileForm] = useState({
     firstName: '',
     lastName: '',
@@ -75,18 +76,18 @@ export default function Settings() {
       try {
         setLoading(true);
         setSessionsLoading(true);
+        setNotificationPreferencesLoading(true);
         const [prefRes, mfaRes, orgRes, sessionsRes] = await Promise.all([
-          api.get('/api/v1/me/preferences'),
+          api.get('/api/v1/me/notification-preferences').catch(() => ({ data: { preferences: [] } })),
           api.get('/api/v1/me/mfa'),
           isSuperAdmin ? api.get(`/api/v1/admin/organizations/${orgId}`) : api.get('/api/v1/me/organization'),
           api.get('/api/v1/me/sessions').catch(() => ({ data: { data: [] } })),
         ]);
         if (!active) return;
         setPreferences({
-          securityAlerts: !!prefRes.data?.security_alerts,
-          weeklySummary: !!prefRes.data?.weekly_summary_emails,
           rememberSession: rememberBrowser,
         });
+        setNotificationPreferences(prefRes.data?.preferences || []);
         setMfaStatus({
           enabled: !!mfaRes.data?.enabled,
           org_enforced: !!mfaRes.data?.org_enforced,
@@ -101,6 +102,7 @@ export default function Settings() {
         if (active) {
           setLoading(false);
           setSessionsLoading(false);
+          setNotificationPreferencesLoading(false);
         }
       }
     };
@@ -187,23 +189,47 @@ export default function Settings() {
     setMessage('');
 
     try {
-      const res = await api.put('/api/v1/me/preferences', {
-        security_alerts: preferences.securityAlerts,
-        weekly_summary_emails: preferences.weeklySummary,
-      });
-
       setRememberBrowserPreference(preferences.rememberSession);
       setPreferences((prev) => ({
         ...prev,
-        securityAlerts: !!res.data?.security_alerts,
-        weeklySummary: !!res.data?.weekly_summary_emails,
         rememberSession: preferences.rememberSession,
       }));
-      setMessage('Preferences saved.');
+      setMessage('Security options saved.');
     } catch (err) {
-      setError(err.response?.data?.detail?.error_description || 'Unable to save account preferences.');
+      setError(err.response?.data?.detail?.error_description || 'Unable to save security options.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const toggleNotificationPreference = async (eventKey, enabled) => {
+    const nextPreferences = notificationPreferences.map((item) => (
+      item.event_key === eventKey ? { ...item, enabled } : item
+    ));
+    setNotificationPreferences(nextPreferences);
+    setNotificationPreferencesSaving(true);
+    setError('');
+    setMessage('');
+
+    try {
+      const res = await api.put('/api/v1/me/notification-preferences', {
+        preferences: nextPreferences.map((item) => ({
+          event_key: item.event_key,
+          enabled: item.enabled,
+        })),
+      });
+      setNotificationPreferences(res.data?.preferences || nextPreferences);
+      setMessage('Notification preferences updated.');
+    } catch (err) {
+      setError(err.response?.data?.detail?.error_description || 'Unable to update notification preferences.');
+      try {
+        const res = await api.get('/api/v1/me/notification-preferences');
+        setNotificationPreferences(res.data?.preferences || []);
+      } catch {
+        setNotificationPreferences([]);
+      }
+    } finally {
+      setNotificationPreferencesSaving(false);
     }
   };
 
@@ -440,16 +466,6 @@ export default function Settings() {
           <div className="space-y-3">
             {[
               {
-                key: 'securityAlerts',
-                label: 'Security alerts',
-                hint: 'Controls security-related in-app notifications and emails like failed sign-ins and password-reset completion alerts.',
-              },
-              {
-                key: 'weeklySummary',
-                label: 'Weekly summary emails',
-                hint: 'Sends a digest of the last 7 days when there has been account or admin activity worth summarizing.',
-              },
-              {
                 key: 'rememberSession',
                 label: 'Remember this browser',
                 hint: 'Keeps your admin session in this browser after closing the tab or browser until the token expires or you sign out.',
@@ -472,9 +488,43 @@ export default function Settings() {
           </div>
           <div className="mt-4">
             <Button className="w-full justify-center" onClick={handleSave} disabled={loading || saving}>
-              {loading ? 'Loading...' : saving ? 'Saving...' : 'Save preferences'}
+              {loading ? 'Loading...' : saving ? 'Saving...' : 'Save security options'}
             </Button>
           </div>
+        </Card>
+
+        <Card title="Notification Preferences" subtitle="Control which event-by-event alerts and emails reach your account." className="xl:col-span-2">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <p className="text-sm text-gray-500">
+              These detailed preferences match the user profile controls and apply to your own account.
+            </p>
+            {notificationPreferencesSaving ? (
+              <span className="text-xs font-medium text-gray-500">Saving...</span>
+            ) : null}
+          </div>
+          {notificationPreferencesLoading ? (
+            <p className="text-sm text-gray-500">Loading preferences...</p>
+          ) : notificationPreferences.length === 0 ? (
+            <p className="text-sm text-gray-500">No notification preferences available.</p>
+          ) : (
+            <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
+              {notificationPreferences.map((preference) => (
+                <label key={preference.event_key} className="flex items-center justify-between gap-4 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm">
+                  <span className="min-w-0">
+                    <span className="block font-medium text-gray-900">{preference.event_key}</span>
+                    <span className="block text-xs text-gray-500">Control whether you receive alerts for this event.</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={!!preference.enabled}
+                    onChange={(event) => toggleNotificationPreference(preference.event_key, event.target.checked)}
+                    disabled={notificationPreferencesSaving}
+                    className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                </label>
+              ))}
+            </div>
+          )}
         </Card>
 
         <Card title="Access Profile" subtitle="The roles and permissions currently active for your signed-in account." className="xl:col-span-1">
