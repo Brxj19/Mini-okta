@@ -537,9 +537,22 @@
   color: #64748b;
 }
 
-.app-loading-footer p {
+.app-loading-footer h2 {
+  margin-top: 0.2rem;
+  font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(2.1rem, 4vw, 3.4rem);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.05em;
+  color: #0f172a;
   text-align: center;
-  font-size: 0.92rem;
+}
+
+.app-loading-footer p {
+  margin-top: 1rem;
+  text-align: center;
+  font-size: 1rem;
+  line-height: 1.8;
   color: #64748b;
 }
 

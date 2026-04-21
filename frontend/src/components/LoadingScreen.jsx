@@ -44,6 +44,7 @@ export default function LoadingScreen() {
         />
       </div>
       <div className="app-loading-footer">
+        <h2>Your orbit is almost aligned.</h2>
         <p>Preparing your workspace and syncing identity context.</p>
       </div>
     </div>

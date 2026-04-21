@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import api from '../api/client';
 import PageHeader from '../components/PageHeader';
 import UserAvatar from '../components/UserAvatar';
-import { ApplicationsIcon, SecurityIcon, UsersIcon } from '../components/Icons';
+import { ApplicationsIcon, BellIcon, SecurityIcon, UsersIcon } from '../components/Icons';
 import { getDisplayName, getShortDisplayName } from '../utils/profile';
 import { hasPermission as userHasPermission, hasRole } from '../utils/permissions';
 
@@ -72,10 +72,34 @@ export default function Dashboard() {
   const greetingName = getShortDisplayName(account, '');
 
   const cards = [
-    { label: 'Total Users', value: stats.users, tone: 'bg-indigo-50 text-indigo-700' },
-    { label: 'Active Sessions', value: stats.sessions, tone: 'bg-emerald-50 text-emerald-700' },
-    { label: 'Applications Connected', value: stats.applications, tone: 'bg-sky-50 text-sky-700' },
-    { label: 'Security Alerts', value: stats.alerts, tone: 'bg-amber-50 text-amber-700' },
+    {
+      label: 'Total Users',
+      value: stats.users,
+      tone: 'bg-indigo-50 text-indigo-700',
+      iconTone: 'bg-indigo-100 text-indigo-700',
+      icon: UsersIcon,
+    },
+    {
+      label: 'Active Sessions',
+      value: stats.sessions,
+      tone: 'bg-emerald-50 text-emerald-700',
+      iconTone: 'bg-emerald-100 text-emerald-700',
+      icon: BellIcon,
+    },
+    {
+      label: 'Applications Connected',
+      value: stats.applications,
+      tone: 'bg-sky-50 text-sky-700',
+      iconTone: 'bg-sky-100 text-sky-700',
+      icon: ApplicationsIcon,
+    },
+    {
+      label: 'Security Alerts',
+      value: stats.alerts,
+      tone: 'bg-amber-50 text-amber-700',
+      iconTone: 'bg-amber-100 text-amber-700',
+      icon: SecurityIcon,
+    },
   ];
 
   return (
@@ -122,7 +146,12 @@ export default function Dashboard() {
       <div className="mb-7 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map((card) => (
           <article key={card.label} className="surface p-5 transition-all hover:-translate-y-px hover:shadow-md">
-            <p className="text-sm font-medium text-gray-600">{card.label}</p>
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-sm font-medium text-gray-600">{card.label}</p>
+              <span className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl ${card.iconTone}`}>
+                <card.icon className="h-5 w-5" />
+              </span>
+            </div>
             <div className="mt-3 flex items-center justify-between">
               <p className="text-3xl font-semibold text-gray-900">{card.value}</p>
               <span className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${card.tone}`}>Live</span>
