@@ -29,9 +29,12 @@ function getConfiguredRoleList(value, fallback = []) {
 
 function deriveSigVerseRole(claims) {
   const appRoles = Array.isArray(claims.app_roles) ? claims.app_roles.map((item) => String(item).toLowerCase()) : [];
-  const adminAppRoles = getConfiguredRoleList(process.env.SIGVERSE_ADMIN_APP_ROLES, ['app:admin', 'admin']);
-  const instructorAppRoles = getConfiguredRoleList(process.env.SIGVERSE_INSTRUCTOR_APP_ROLES, ['app:instructor', 'instructor']);
-  const learnerAppRoles = getConfiguredRoleList(process.env.SIGVERSE_LEARNER_APP_ROLES, ['app:learner', 'learner']);
+  // const adminAppRoles = getConfiguredRoleList(process.env.SIGVERSE_ADMIN_APP_ROLES, ['app:admin', 'admin']);
+  const adminAppRoles = getConfiguredRoleList(process.env.SIGVERSE_ADMIN_APP_ROLES, []);
+  // const instructorAppRoles = getConfiguredRoleList(process.env.SIGVERSE_INSTRUCTOR_APP_ROLES, ['app:instructor', 'instructor']);
+  const instructorAppRoles = getConfiguredRoleList(process.env.SIGVERSE_INSTRUCTOR_APP_ROLES, []);
+  // const learnerAppRoles = getConfiguredRoleList(process.env.SIGVERSE_LEARNER_APP_ROLES, ['app:learner', 'learner']);
+  const learnerAppRoles = getConfiguredRoleList(process.env.SIGVERSE_LEARNER_APP_ROLES, []);
 
   if (appRoles.some((role) => adminAppRoles.includes(role))) return 'admin';
   if (appRoles.some((role) => instructorAppRoles.includes(role))) return 'instructor';

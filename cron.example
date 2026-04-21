@@ -16,3 +16,6 @@ PATH=/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin
 
 # Subscription reminders and expiry checks: every day at 8:30 AM
 30 8 * * * cd /Users/as-mac-1293/Desktop/mini-okta-v2.2/backend && venv/bin/python scripts/process_subscription_notifications.py >> /tmp/sigauth-subscription-notifications.log 2>&1
+
+# Hard-delete soft-deleted users, applications, and organizations older than 90 days: every day at 2:15 AM
+15 2 * * * cd /Users/as-mac-1293/Desktop/mini-okta-v2.2/backend && venv/bin/python scripts/purge_soft_deletes.py >> /tmp/sigauth-soft-delete-purge.log 2>&1

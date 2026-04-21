@@ -1,6 +1,6 @@
 """Organization Pydantic schemas."""
 
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, field_validator
 from typing import Optional, Any
 from datetime import datetime
 from uuid import UUID
@@ -19,6 +19,14 @@ class OrganizationCreate(BaseModel):
     display_name: Optional[str] = None
     settings: Optional[dict[str, Any]] = Field(default_factory=dict)
     bootstrap_admin: BootstrapAdminCreate
+
+    @field_validator("slug", mode="before")
+    @classmethod
+    def normalize_blank_slug(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = str(value).strip().lower()
+        return normalized or None
 
 
 class OrganizationUpdate(BaseModel):

@@ -10,7 +10,7 @@ from sqlalchemy import select
 from app.models.organization import Organization
 from app.models.password_reset import PasswordResetToken
 
-from app.dependencies import get_db, require_super_admin, require_permission
+from app.dependencies import get_db, get_redis, require_super_admin, require_permission
 from app.schemas.organization import (
     OrganizationCreate, OrganizationUpdate, OrganizationResponse, OrganizationListResponse,
     OrganizationCreateResponse, BootstrapAdminResponse,
@@ -31,6 +31,12 @@ from app.services.organization_service import (
     update_organization, suspend_organization, activate_organization, soft_delete_organization,
     set_organization_access_tier, get_org_access_tier, get_org_limits, slugify_org_name, resolve_available_org_slug,
 )
+from app.services.user_service import soft_delete_user
+from app.services.token_service import revoke_all_user_tokens, get_user_token_jtis
+from app.services.browser_session_service import revoke_all_browser_sessions_for_user
+from app.services.session_service import revoke_provider_session
+from app.models.user import User
+import redis.asyncio as aioredis
 from app.services.audit_service import write_audit_event
 from app.services.notification_service import send_admin_activity_notification, send_notification_event
 from app.services.email_service import send_invitation_email
@@ -235,8 +241,21 @@ async def delete_org(
     org_id: UUID,
     current_user: dict = Depends(require_super_admin),
     db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
 ):
     """Soft delete an organization."""
+    user_rows = await db.execute(
+        select(User).where(User.org_id == org_id, User.deleted_at.is_(None))
+    )
+    users = user_rows.scalars().all()
+    for user in users:
+        jtis = await get_user_token_jtis(db, user.id)
+        await revoke_all_user_tokens(db, user.id, reason="organization_deleted")
+        await revoke_all_browser_sessions_for_user(redis, str(user.id))
+        for jti in jtis:
+            await revoke_provider_session(db=db, redis=redis, jti=jti, reason="organization_deleted")
+        await soft_delete_user(db, user.id)
+
     org = await soft_delete_organization(db, org_id)
     if not org:
         raise HTTPException(404, detail={"error": "not_found", "error_description": "Organization not found"})

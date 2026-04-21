@@ -5,6 +5,7 @@ import api from '../api/client';
 import { PRODUCT_NAME, PRODUCT_TAGLINE } from '../branding';
 import OrgSelector from './OrgSelector';
 import UserAvatar from './UserAvatar';
+import ConfirmDialog from './ConfirmDialog';
 import { hasPermission as userHasPermission, hasRole } from '../utils/permissions';
 import { getDisplayName } from '../utils/profile';
 import {
@@ -59,6 +60,8 @@ export default function Layout() {
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [notificationsError, setNotificationsError] = useState('');
   const [planStatus, setPlanStatus] = useState(null);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [logoutBusy, setLogoutBusy] = useState(false);
   const [searchQuery, setSearchQuery] = useState(() => searchParams.get('q') || '');
   const dropdownRef = useRef(null);
   const notificationsPanelRef = useRef(null);
@@ -140,8 +143,20 @@ export default function Layout() {
   }, [mobileNavOpen]);
 
   const handleLogout = async () => {
-    await logout();
-    navigate('/login');
+    setLogoutBusy(true);
+    try {
+      await logout();
+      navigate('/login');
+    } finally {
+      setLogoutBusy(false);
+      setLogoutConfirmOpen(false);
+    }
+  };
+
+  const requestLogout = () => {
+    setProfileOpen(false);
+    setMobileNavOpen(false);
+    setLogoutConfirmOpen(true);
   };
 
   const submitSearch = (event) => {
@@ -328,7 +343,7 @@ export default function Layout() {
       </nav>
 
       <div className="border-t border-gray-200 px-5 py-4">
-        <button onClick={handleLogout} className="btn-secondary w-full justify-center">
+        <button onClick={requestLogout} className="btn-secondary w-full justify-center">
           <LogoutIcon className="h-4 w-4" />
           Sign out
         </button>
@@ -459,7 +474,7 @@ export default function Layout() {
                     Profile settings
                   </button>
                   <button
-                    onClick={handleLogout}
+                    onClick={requestLogout}
                     className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-red-700 hover:bg-red-50"
                   >
                     <LogoutIcon className="h-4 w-4" />
@@ -614,6 +629,22 @@ export default function Layout() {
           </aside>
         </div>
       ) : null}
+
+      <ConfirmDialog
+        open={logoutConfirmOpen}
+        title="Sign Out"
+        description="Do you really want to sign out of SigAuth?"
+        confirmLabel="Sign out"
+        cancelLabel="Stay signed in"
+        tone="danger"
+        busy={logoutBusy}
+        onConfirm={handleLogout}
+        onClose={() => {
+          if (!logoutBusy) {
+            setLogoutConfirmOpen(false);
+          }
+        }}
+      />
     </div>
   );
 }

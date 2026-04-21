@@ -6,11 +6,25 @@ from uuid import uuid4
 from app.services.organization_service import (
     _build_deleted_organization_name,
     _build_deleted_organization_slug,
+    slugify_org_name,
     soft_delete_organization,
 )
+from app.schemas.organization import OrganizationCreate
 
 
 class OrganizationServiceTests(unittest.IsolatedAsyncioTestCase):
+    def test_organization_create_blank_slug_normalizes_to_none(self):
+        payload = OrganizationCreate(
+            name="SigVerse Academy",
+            slug="   ",
+            bootstrap_admin={"email": "admin@example.com"},
+        )
+
+        self.assertIsNone(payload.slug)
+
+    def test_slugify_org_name_returns_org_for_non_alphanumeric_input(self):
+        self.assertEqual(slugify_org_name("!!!"), "org")
+
     def test_build_deleted_organization_identifiers_preserve_traceability_and_change_values(self):
         org = SimpleNamespace(
             id=uuid4(),

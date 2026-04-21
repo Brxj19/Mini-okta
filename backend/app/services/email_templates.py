@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from app.branding import COMPANY_NAME, PRODUCT_NAME, PRODUCT_TAGLINE
+from app.branding import PRODUCT_NAME, PRODUCT_TAGLINE
 
 
 def _layout(title: str, body_html: str) -> str:
@@ -27,7 +27,7 @@ def _layout(title: str, body_html: str) -> str:
               </tr>
               <tr>
                 <td style="padding:16px 24px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:12px;color:#64748b;">
-                  {PRODUCT_TAGLINE} · {COMPANY_NAME} · {year}
+                  {PRODUCT_TAGLINE} · {PRODUCT_NAME} · {year}
                 </td>
               </tr>
             </table>

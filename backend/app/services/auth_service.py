@@ -17,6 +17,7 @@ from app.services.application_service import (
     list_application_groups,
     list_application_role_mappings,
 )
+from app.services.organization_service import get_organization
 from app.services.token_service import issue_id_token, issue_access_token, issue_refresh_token
 from app.services.audit_service import write_audit_event
 from app.services.notification_service import send_admin_activity_notification, send_notification_event
@@ -216,6 +217,10 @@ async def authenticate_primary_credentials(
         )
         await db.commit()
         raise AuthError("invalid_credentials", "Invalid email or password", 401)
+
+    org = await get_organization(db, user.org_id)
+    if not org or org.status != "active":
+        raise AuthError("account_unavailable", "Your organization is no longer available for sign-in.", 403)
 
     # Check status
     if user.status == "suspended":

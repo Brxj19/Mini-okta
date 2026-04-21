@@ -140,6 +140,35 @@ class ApplicationServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(captured_statements)
         self.assertIn("applications.status !=", captured_statements[0])
 
+    async def test_get_application_by_client_id_excludes_deleted_rows(self):
+        captured_statements = []
+
+        class FakeDb:
+            async def execute(self, statement):
+                captured_statements.append(str(statement))
+                return _ScalarResult(None)
+
+        await application_service.get_application_by_client_id(FakeDb(), "sigverse-client")
+
+        self.assertTrue(captured_statements)
+        self.assertIn("applications.status !=", captured_statements[0])
+
+    async def test_delete_application_sets_deleted_timestamp(self):
+        app = SimpleNamespace(
+            id=uuid4(),
+            status="active",
+            deleted_at=None,
+            updated_at=None,
+        )
+        fake_db = SimpleNamespace(flush=AsyncMock())
+
+        with patch("app.services.application_service.get_application", AsyncMock(return_value=app)):
+            deleted = await application_service.delete_application(fake_db, app.id)
+
+        self.assertEqual(deleted.status, "deleted")
+        self.assertIsNotNone(deleted.deleted_at)
+        fake_db.flush.assert_awaited_once()
+
     async def test_list_applications_excludes_deleted_rows_from_data_and_count_queries(self):
         org_id = uuid4()
         active_app = SimpleNamespace(id=uuid4(), created_at=SimpleNamespace(isoformat=lambda: "2026-01-01T00:00:00+00:00"))

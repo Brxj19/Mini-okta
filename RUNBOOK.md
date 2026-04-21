@@ -462,6 +462,14 @@ source venv/bin/activate
 python scripts/process_subscription_notifications.py
 ```
 
+### Soft-delete purge after 90 days
+
+```bash
+cd backend
+source venv/bin/activate
+python scripts/purge_soft_deletes.py
+```
+
 You can also copy the ready-to-use repo template:
 
 ```bash
@@ -474,12 +482,14 @@ Or paste these entries manually with `crontab -e`:
 ```cron
 0 9 * * 1 cd /Users/as-mac-1293/Desktop/mini-okta-v2.2/backend && venv/bin/python scripts/send_weekly_summaries.py >> /tmp/sigauth-weekly-summaries.log 2>&1
 30 8 * * * cd /Users/as-mac-1293/Desktop/mini-okta-v2.2/backend && venv/bin/python scripts/process_subscription_notifications.py >> /tmp/sigauth-subscription-notifications.log 2>&1
+15 2 * * * cd /Users/as-mac-1293/Desktop/mini-okta-v2.2/backend && venv/bin/python scripts/purge_soft_deletes.py >> /tmp/sigauth-soft-delete-purge.log 2>&1
 ```
 
 What each job does:
 
 - `send_weekly_summaries.py`: sends weekly summary emails to users who opted in
 - `process_subscription_notifications.py`: sends renewal reminders, cancel-at-period-end reminders, and downgrade expiry notices
+- `purge_soft_deletes.py`: permanently removes soft-deleted users, applications, and organizations older than 90 days
 
 Verify the installed schedule with:
 

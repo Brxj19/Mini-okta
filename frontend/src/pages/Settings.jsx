@@ -363,7 +363,7 @@ export default function Settings() {
                 onChange={handleProfileImageSelected}
               />
               <p className="mt-3 text-xs leading-5 text-gray-500">
-                JPG, PNG, WEBP, or another image file up to 5MB. The upload is stored in your Cloudinary account.
+                JPG, PNG, WEBP, or another image file up to 5MB. 
               </p>
               {!isCloudinaryConfigured() ? (
                 <p className="mt-2 text-xs leading-5 text-amber-700">

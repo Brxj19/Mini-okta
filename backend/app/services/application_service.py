@@ -102,7 +102,12 @@ async def get_application(db: AsyncSession, app_id: UUID) -> Optional[Applicatio
 
 async def get_application_by_client_id(db: AsyncSession, client_id: str) -> Optional[Application]:
     """Get application by client_id."""
-    result = await db.execute(select(Application).where(Application.client_id == client_id))
+    result = await db.execute(
+        select(Application).where(
+            Application.client_id == client_id,
+            Application.status != "deleted",
+        )
+    )
     return result.scalar_one_or_none()
 
 
@@ -225,6 +230,7 @@ async def enable_application(db: AsyncSession, app_id: UUID) -> Optional[Applica
     if not app:
         return None
     app.status = "active"
+    app.deleted_at = None
     app.updated_at = datetime.now(timezone.utc)
     await db.flush()
     return app
@@ -236,6 +242,7 @@ async def delete_application(db: AsyncSession, app_id: UUID) -> Optional[Applica
     if not app:
         return None
     app.status = "deleted"
+    app.deleted_at = datetime.now(timezone.utc)
     app.updated_at = datetime.now(timezone.utc)
     await db.flush()
     return app

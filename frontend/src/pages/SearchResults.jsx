@@ -5,7 +5,7 @@ import api from '../api/client';
 import PageHeader from '../components/PageHeader';
 import UserAvatar from '../components/UserAvatar';
 import { getDisplayName } from '../utils/profile';
-import { hasPermission } from '../utils/permissions';
+import { hasPermission, hasRole } from '../utils/permissions';
 
 function normalize(value) {
   return String(value || '').toLowerCase();
@@ -15,26 +15,48 @@ function includesQuery(value, query) {
   return normalize(value).includes(normalize(query));
 }
 
+function getLaunchUrl(app) {
+  const firstRedirect = app?.redirect_uris?.[0];
+  if (!firstRedirect) return null;
+  try {
+    const parsed = new URL(firstRedirect);
+    return `${parsed.origin}/`;
+  } catch {
+    return null;
+  }
+}
+
 export default function SearchResults() {
   const { orgId, claims } = useAuth();
   const [searchParams] = useSearchParams();
   const query = (searchParams.get('q') || '').trim();
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState({
+    organizations: [],
     users: [],
     applications: [],
+    myApps: [],
     groups: [],
     events: [],
   });
 
+  const isSuperAdmin = !!claims?.is_super_admin;
+  const isOrgAdmin = hasRole(claims, 'org:admin');
+  const canSearchOrganizations = isSuperAdmin;
+  const canSearchMyApps = !isSuperAdmin && !isOrgAdmin;
   const canReadUsers = hasPermission(claims, 'user:read');
   const canReadApps = hasPermission(claims, 'app:read');
   const canReadGroups = hasPermission(claims, 'group:read');
   const canReadAudit = hasPermission(claims, 'audit:read');
 
   useEffect(() => {
-    if (!orgId || !query) {
-      setResults({ users: [], applications: [], groups: [], events: [] });
+    if (!query) {
+      setResults({ organizations: [], users: [], applications: [], myApps: [], groups: [], events: [] });
+      return;
+    }
+
+    if (!canSearchOrganizations && !orgId) {
+      setResults({ organizations: [], users: [], applications: [], myApps: [], groups: [], events: [] });
       return;
     }
 
@@ -42,11 +64,17 @@ export default function SearchResults() {
     setLoading(true);
 
     Promise.allSettled([
+      canSearchOrganizations
+        ? api.get('/api/v1/admin/organizations?limit=100')
+        : Promise.resolve({ data: { data: [] } }),
       canReadUsers
         ? api.get(`/api/v1/organizations/${orgId}/users?filter[email_contains]=${encodeURIComponent(query)}&limit=12`)
         : Promise.resolve({ data: { data: [] } }),
       canReadApps
         ? api.get(`/api/v1/organizations/${orgId}/applications?limit=100`)
+        : Promise.resolve({ data: { data: [] } }),
+      canSearchMyApps
+        ? api.get('/api/v1/me/applications')
         : Promise.resolve({ data: { data: [] } }),
       canReadGroups
         ? api.get(`/api/v1/organizations/${orgId}/groups?limit=100`)
@@ -54,14 +82,24 @@ export default function SearchResults() {
       canReadAudit
         ? api.get(`/api/v1/organizations/${orgId}/audit-log?limit=80`)
         : Promise.resolve({ data: { data: [] } }),
-    ]).then(([usersRes, appsRes, groupsRes, auditRes]) => {
+    ]).then(([orgsRes, usersRes, appsRes, myAppsRes, groupsRes, auditRes]) => {
       if (!active) return;
 
+      const organizations = (orgsRes.value?.data?.data || []).filter((org) => (
+        includesQuery(org.name, query) ||
+        includesQuery(org.display_name, query) ||
+        includesQuery(org.slug, query)
+      )).slice(0, 12);
       const users = usersRes.value?.data?.data || [];
       const applications = (appsRes.value?.data?.data || []).filter((app) => (
         includesQuery(app.name, query) ||
         includesQuery(app.client_id, query) ||
         includesQuery(app.app_type, query)
+      )).slice(0, 12);
+      const myApps = (myAppsRes.value?.data?.data || []).filter((app) => (
+        includesQuery(app.name, query) ||
+        includesQuery(app.app_type, query) ||
+        includesQuery(app.status, query)
       )).slice(0, 12);
       const groups = (groupsRes.value?.data?.data || []).filter((group) => (
         includesQuery(group.name, query) ||
@@ -73,21 +111,28 @@ export default function SearchResults() {
         includesQuery(event.resource_id, query)
       )).slice(0, 12);
 
-      setResults({ users, applications, groups, events });
+      setResults({ organizations, users, applications, myApps, groups, events });
       setLoading(false);
     }).catch(() => {
       if (!active) return;
-      setResults({ users: [], applications: [], groups: [], events: [] });
+      setResults({ organizations: [], users: [], applications: [], myApps: [], groups: [], events: [] });
       setLoading(false);
     });
 
     return () => {
       active = false;
     };
-  }, [orgId, query, canReadUsers, canReadApps, canReadGroups, canReadAudit]);
+  }, [orgId, query, canSearchOrganizations, canSearchMyApps, canReadUsers, canReadApps, canReadGroups, canReadAudit]);
 
   const total = useMemo(
-    () => results.users.length + results.applications.length + results.groups.length + results.events.length,
+    () => (
+      results.organizations.length +
+      results.users.length +
+      results.applications.length +
+      results.myApps.length +
+      results.groups.length +
+      results.events.length
+    ),
     [results],
   );
 
@@ -96,7 +141,7 @@ export default function SearchResults() {
       <PageHeader
         eyebrow="Search"
         title={query ? `Results for "${query}"` : 'Global Search'}
-        description="Search across users, applications, groups, and audit events from one place."
+        description="Search across the data and app access you’re allowed to see from one place."
       />
 
       {!query ? (
@@ -110,6 +155,22 @@ export default function SearchResults() {
           <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600 shadow-sm">
             Found <span className="font-semibold text-gray-900">{total}</span> result{total === 1 ? '' : 's'}.
           </div>
+
+          {canSearchOrganizations ? (
+            <section className="surface">
+              <div className="border-b border-gray-200 px-5 py-4">
+                <h2 className="text-base font-semibold text-gray-900">Organizations</h2>
+              </div>
+              <div className="divide-y divide-gray-200">
+                {results.organizations.length ? results.organizations.map((org) => (
+                  <Link key={org.id} to={`/organizations/${org.id}`} className="block px-5 py-4 hover:bg-gray-50">
+                    <p className="text-sm font-medium text-gray-900">{org.display_name || org.name}</p>
+                    <p className="mt-1 text-xs text-gray-500">{org.slug} • {org.status}</p>
+                  </Link>
+                )) : <p className="px-5 py-4 text-sm text-gray-500">No matching organizations.</p>}
+              </div>
+            </section>
+          ) : null}
 
           <section className="surface">
             <div className="border-b border-gray-200 px-5 py-4">
@@ -157,6 +218,41 @@ export default function SearchResults() {
               </div>
             </div>
           </section>
+
+          {canSearchMyApps ? (
+            <section className="surface">
+              <div className="border-b border-gray-200 px-5 py-4">
+                <h2 className="text-base font-semibold text-gray-900">My Apps</h2>
+              </div>
+              <div className="divide-y divide-gray-200">
+                {results.myApps.length ? results.myApps.map((app) => {
+                  const launchUrl = getLaunchUrl(app);
+                  const content = (
+                    <>
+                      <p className="text-sm font-medium text-gray-900">{app.name}</p>
+                      <p className="mt-1 text-xs text-gray-500">{app.app_type} • {app.status}</p>
+                    </>
+                  );
+
+                  return launchUrl ? (
+                    <a
+                      key={app.id}
+                      href={launchUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block px-5 py-4 hover:bg-gray-50"
+                    >
+                      {content}
+                    </a>
+                  ) : (
+                    <div key={app.id} className="px-5 py-4">
+                      {content}
+                    </div>
+                  );
+                }) : <p className="px-5 py-4 text-sm text-gray-500">No matching apps from your directory.</p>}
+              </div>
+            </section>
+          ) : null}
 
           <section className="surface">
             <div className="border-b border-gray-200 px-5 py-4">
