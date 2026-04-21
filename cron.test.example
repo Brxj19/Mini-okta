@@ -1,0 +1,19 @@
+# SigAuth scheduled jobs - test mode
+#
+# Install temporarily with:
+#   crontab cron.test.example
+#
+# These run frequently for verification only. Switch back to `cron.example`
+# after testing.
+
+SHELL=/bin/zsh
+PATH=/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin
+
+# Weekly summary emails: every 2 minutes, forced for testing
+*/2 * * * * cd /Users/as-mac-1293/Desktop/mini-okta-v2.2/backend && venv/bin/python scripts/send_weekly_summaries.py --window-days 1 --force >> /tmp/sigauth-weekly-summaries-test.log 2>&1
+
+# Subscription reminders: every 2 minutes, widened reminder windows for testing
+*/2 * * * * cd /Users/as-mac-1293/Desktop/mini-okta-v2.2/backend && venv/bin/python scripts/process_subscription_notifications.py --renewal-window-days 365 --cancel-window-days 365 >> /tmp/sigauth-subscription-notifications-test.log 2>&1
+
+# Soft-delete purge: every 2 minutes, purge anything already soft-deleted
+*/2 * * * * cd /Users/as-mac-1293/Desktop/mini-okta-v2.2/backend && venv/bin/python scripts/purge_soft_deletes.py --retention-days 0 >> /tmp/sigauth-soft-delete-purge-test.log 2>&1

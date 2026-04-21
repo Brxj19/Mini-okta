@@ -236,6 +236,14 @@ async def authenticate_primary_credentials(
             403,
         )
 
+    org_settings = org.settings if isinstance(org.settings, dict) else {}
+    if bool(org_settings.get("require_email_verification")) and not user.email_verified:
+        raise AuthError(
+            "email_verification_required",
+            "Verify your email address before signing in. Enter the 6-digit code sent to your inbox.",
+            403,
+        )
+
     if user.password_expires_at and user.password_expires_at < datetime.now(timezone.utc):
         grace_until = user.password_expires_at + timedelta(days=settings.PASSWORD_EXPIRY_GRACE_DAYS)
         if datetime.now(timezone.utc) > grace_until:

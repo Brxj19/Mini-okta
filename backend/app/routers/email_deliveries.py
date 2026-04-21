@@ -34,7 +34,14 @@ async def process_queue_admin(
     db: AsyncSession = Depends(get_db),
 ):
     """Manually process pending/failed email deliveries."""
-    return await process_email_queue(db, limit)
+    result = await process_email_queue(db, limit)
+    return {
+        "message": (
+            f"Processed {result['queued']} queued email(s): "
+            f"{result['sent']} sent, {result['failed']} failed, {result['dead']} dead."
+        ),
+        **result,
+    }
 
 
 @org_router.get("")

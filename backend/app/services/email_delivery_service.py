@@ -105,8 +105,8 @@ async def list_email_deliveries(
         query = query.where(EmailDelivery.status == status)
         count_query = count_query.where(EmailDelivery.status == status)
     if event_key:
-        query = query.where(EmailDelivery.event_key == event_key)
-        count_query = count_query.where(EmailDelivery.event_key == event_key)
+        query = query.where(EmailDelivery.event_key.ilike(f"%{event_key}%"))
+        count_query = count_query.where(EmailDelivery.event_key.ilike(f"%{event_key}%"))
     if to_email:
         query = query.where(EmailDelivery.to_email.ilike(f"%{to_email}%"))
         count_query = count_query.where(EmailDelivery.to_email.ilike(f"%{to_email}%"))

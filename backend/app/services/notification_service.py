@@ -280,25 +280,28 @@ async def send_weekly_summary_email(
     db: AsyncSession,
     user: User,
     window_end: Optional[datetime] = None,
+    window_days: int = 7,
+    ignore_recent_digest: bool = False,
 ) -> bool:
     """Queue/send a weekly summary email when enabled and there is recent activity."""
     if not await is_notification_enabled(db, user.id, WEEKLY_SUMMARY_EVENT):
         return False
 
     end_at = window_end or datetime.now(timezone.utc)
-    start_at = end_at - timedelta(days=7)
+    start_at = end_at - timedelta(days=window_days)
 
-    existing_digest = await db.execute(
-        select(EmailDelivery.id).where(
-            EmailDelivery.user_id == user.id,
-            EmailDelivery.event_key == WEEKLY_SUMMARY_EVENT,
-            EmailDelivery.status == "sent",
-            EmailDelivery.sent_at.is_not(None),
-            EmailDelivery.sent_at >= start_at,
+    if not ignore_recent_digest:
+        existing_digest = await db.execute(
+            select(EmailDelivery.id).where(
+                EmailDelivery.user_id == user.id,
+                EmailDelivery.event_key == WEEKLY_SUMMARY_EVENT,
+                EmailDelivery.status == "sent",
+                EmailDelivery.sent_at.is_not(None),
+                EmailDelivery.sent_at >= start_at,
+            )
         )
-    )
-    if existing_digest.scalar_one_or_none():
-        return False
+        if existing_digest.scalar_one_or_none():
+            return False
 
     summary_result = await db.execute(
         select(Notification.event_key, func.count(Notification.id))

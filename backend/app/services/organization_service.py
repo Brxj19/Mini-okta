@@ -126,6 +126,7 @@ async def create_organization_with_admin(
     admin_last_name: Optional[str] = None,
     display_name: Optional[str] = None,
     org_settings: Optional[dict] = None,
+    require_password_setup: bool = True,
 ) -> tuple[Organization, User, str]:
     """Create an organization and bootstrap its first org admin."""
     password_to_store = admin_password or generate_temporary_password()
@@ -153,9 +154,13 @@ async def create_organization_with_admin(
         email_verified=False,
         status="active",
         is_super_admin=False,
-        must_change_password=True,
-        invited_at=datetime.now(timezone.utc),
-        invitation_expires_at=datetime.now(timezone.utc) + timedelta(hours=settings.INVITATION_LINK_TTL_HOURS),
+        must_change_password=require_password_setup,
+        invited_at=datetime.now(timezone.utc) if require_password_setup else None,
+        invitation_expires_at=(
+            datetime.now(timezone.utc) + timedelta(hours=settings.INVITATION_LINK_TTL_HOURS)
+            if require_password_setup
+            else None
+        ),
     )
     db.add(admin_user)
     await db.flush()
@@ -251,6 +256,7 @@ def build_self_serve_settings(existing: Optional[dict[str, Any]] = None) -> dict
             "signup_origin": "self_serve",
             "access_tier": "limited",
             "verification_status": "pending",
+            "require_email_verification": True,
             "limits": payload.get("limits") or DEFAULT_SELF_SERVE_LIMITS.copy(),
         }
     )

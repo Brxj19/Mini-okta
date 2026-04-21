@@ -333,7 +333,13 @@ def reconcile_subscription_status(raw_settings: Optional[dict[str, Any]]) -> tup
     return payload, True
 
 
-async def process_subscription_lifecycle_notifications(db, org: Organization) -> dict[str, bool]:
+async def process_subscription_lifecycle_notifications(
+    db,
+    org: Organization,
+    *,
+    renewal_window_days: int = 3,
+    cancel_window_days: int = 1,
+) -> dict[str, bool]:
     """Send plan lifecycle reminders/expiry notices for one organization."""
     from app.services.audit_service import write_audit_event
     from app.services.notification_service import send_org_admin_notification
@@ -379,7 +385,7 @@ async def process_subscription_lifecycle_notifications(db, org: Organization) ->
         return result
 
     days_remaining = seconds_remaining / 86400
-    if days_remaining <= 3 and not _has_notification_mark(billing, "billing.renewal_reminder", cycle_key):
+    if days_remaining <= renewal_window_days and not _has_notification_mark(billing, "billing.renewal_reminder", cycle_key):
         await send_org_admin_notification(
             db=db,
             org_id=org.id,
@@ -393,7 +399,7 @@ async def process_subscription_lifecycle_notifications(db, org: Organization) ->
 
     if (
         bool(subscription.get("cancel_at_period_end"))
-        and days_remaining <= 1
+        and days_remaining <= cancel_window_days
         and not _has_notification_mark(billing, "billing.cancel_reminder", cycle_key)
     ):
         await send_org_admin_notification(

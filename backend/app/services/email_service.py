@@ -9,6 +9,7 @@ from app.config import settings
 from app.utils.crypto_utils import generate_email_verification_token
 from app.services.email_templates import (
     verification_email_html,
+    verification_code_email_html,
     password_reset_email_html,
     invitation_email_html,
 )
@@ -34,6 +35,31 @@ async def send_verification_email(
         event_key="security.email_verification",
         org_id=org_id,
         user_id=UUID(user_id) if user_id else None,
+    )
+    await process_email_queue(db, limit=10)
+
+
+async def send_verification_code_email(
+    db: AsyncSession,
+    email: str,
+    verification_code: str,
+    org_id: Optional[UUID] = None,
+    user_id: Optional[UUID] = None,
+) -> None:
+    """Queue/send a 6-digit email verification code."""
+    html_body = verification_code_email_html(
+        verification_code,
+        settings.EMAIL_VERIFICATION_OTP_TTL_MINUTES,
+    )
+
+    await queue_email(
+        db=db,
+        to_email=email,
+        subject="Your email verification code",
+        html_body=html_body,
+        event_key="security.email_verification",
+        org_id=org_id,
+        user_id=user_id,
     )
     await process_email_queue(db, limit=10)
 

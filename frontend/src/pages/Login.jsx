@@ -48,6 +48,8 @@ export default function Login() {
       const detail = err.response?.data?.detail || {};
       if (detail.error === 'password_setup_required') {
         setError('Complete account setup from invitation email before signing in.');
+      } else if (detail.error === 'email_verification_required') {
+        setError('Verify your email with the 6-digit code from signup before signing in.');
       } else if (detail.error === 'password_expired' || detail.error === 'password_expired_hard') {
         setError('Password expired. Use the reset flow to continue.');
       } else if (detail.error === 'mfa_challenge_expired') {

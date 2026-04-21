@@ -9,6 +9,7 @@ import AuthParticleCanvas from '../components/AuthParticleCanvas';
 export default function Signup() {
   const navigate = useNavigate();
   const [mode, setMode] = useState('organization');
+  const [signupStep, setSignupStep] = useState('create');
   const [form, setForm] = useState({
     organization_name: '',
     organization_slug: '',
@@ -18,6 +19,10 @@ export default function Signup() {
     admin_password: '',
     admin_confirm_password: '',
   });
+  const [verificationCode, setVerificationCode] = useState('');
+  const [verificationChallengeToken, setVerificationChallengeToken] = useState('');
+  const [verificationEmail, setVerificationEmail] = useState('');
+  const [verificationOrgSlug, setVerificationOrgSlug] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -45,12 +50,49 @@ export default function Signup() {
       };
       const res = await api.post('/api/v1/signup/organization', payload);
       const orgSlug = res?.data?.organization?.slug;
+      setVerificationChallengeToken(res?.data?.verification_challenge_token || '');
+      setVerificationEmail(res?.data?.admin_user?.email || payload.admin_email);
+      setVerificationOrgSlug(orgSlug || '');
+      setVerificationCode('');
+      setSignupStep('verify-email');
       setSuccess(
-        `Organization created in free self-serve mode${orgSlug ? ` (${orgSlug})` : ''}. Sign in as org admin and choose a paid plan whenever you want to unlock full access.`
+        `Signup pending${orgSlug ? ` (${orgSlug})` : ''}. Enter the 6-digit verification code we sent to ${res?.data?.admin_user?.email || payload.admin_email} to create the organization.`
       );
-      setTimeout(() => navigate('/login'), 1400);
     } catch (err) {
       setError(err.response?.data?.detail?.error_description || 'Could not complete organization signup.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyEmail = async (event) => {
+    event.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const res = await api.post('/api/v1/signup/organization/verify-email-otp', {
+        challenge_token: verificationChallengeToken,
+        code: verificationCode,
+      });
+      setSuccess(res?.data?.message || 'Email verified successfully. You can now sign in.');
+      setTimeout(() => navigate('/login'), 1200);
+    } catch (err) {
+      setError(err.response?.data?.detail?.error_description || 'Could not verify the email code.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendVerificationCode = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const res = await api.post('/api/v1/signup/organization/resend-email-otp', {
+        challenge_token: verificationChallengeToken,
+      });
+      setSuccess(res?.data?.message || `A new verification code has been sent to ${verificationEmail}.`);
+    } catch (err) {
+      setError(err.response?.data?.detail?.error_description || 'Could not resend the verification code.');
     } finally {
       setLoading(false);
     }
@@ -83,6 +125,7 @@ export default function Signup() {
             type="button"
             onClick={() => {
               setMode('organization');
+              setSignupStep('create');
               setError('');
               setSuccess('');
             }}
@@ -94,6 +137,7 @@ export default function Signup() {
             type="button"
             onClick={() => {
               setMode('join');
+              setSignupStep('create');
               setError('');
               setSuccess('');
             }}
@@ -103,7 +147,7 @@ export default function Signup() {
           </button>
         </div>
 
-        {mode === 'organization' && (
+        {mode === 'organization' && signupStep === 'create' && (
           <form className="space-y-4" onSubmit={onSubmit}>
             {error ? <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
             {success ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{success}</div> : null}
@@ -163,6 +207,69 @@ export default function Signup() {
             </div>
 
             <button disabled={loading} className="btn-primary w-full">{loading ? 'Creating Organization...' : 'Create Organization'}</button>
+          </form>
+        )}
+
+        {mode === 'organization' && signupStep === 'verify-email' && (
+          <form className="space-y-4" onSubmit={handleVerifyEmail}>
+            {error ? <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+            {success ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{success}</div> : null}
+
+            <div className="rounded-lg border border-gray-300 bg-gray-100 px-3 py-3 text-sm text-gray-800">
+              Verify the email for your new organization admin account before first sign-in.
+            </div>
+
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-700">
+              <p className="font-medium text-gray-900">{verificationEmail}</p>
+              <p className="mt-1 text-xs text-gray-500">
+                {verificationOrgSlug ? `Organization slug: ${verificationOrgSlug}` : 'Verification is required for self-serve signup.'}
+              </p>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-gray-700">Email Verification Code</label>
+              <input
+                type="text"
+                className="input-field"
+                value={verificationCode}
+                onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                placeholder="123456"
+                required
+              />
+            </div>
+
+            <button disabled={loading || verificationCode.length !== 6} className="btn-primary w-full">
+              {loading ? 'Verifying...' : 'Verify Email'}
+            </button>
+
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                onClick={handleResendVerificationCode}
+                disabled={loading}
+                className="btn-secondary w-full"
+              >
+                Resend code
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSignupStep('create');
+                  setVerificationCode('');
+                  setVerificationChallengeToken('');
+                  setVerificationEmail('');
+                  setVerificationOrgSlug('');
+                  setError('');
+                  setSuccess('');
+                }}
+                disabled={loading}
+                className="btn-secondary w-full"
+              >
+                Start over
+              </button>
+            </div>
           </form>
         )}
 

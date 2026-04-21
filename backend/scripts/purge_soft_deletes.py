@@ -1,6 +1,7 @@
 """Hard-delete soft-deleted applications, users, and organizations older than the retention window."""
 
 import asyncio
+import argparse
 import os
 import sys
 from datetime import datetime, timedelta, timezone
@@ -23,8 +24,18 @@ from app.models.password_reset import PasswordResetToken
 from app.models.role import Role
 from app.models.token import Token
 from app.models.user import User
+from app.config import settings
 
-RETENTION_DAYS = 90
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Purge soft-deleted records older than the retention window.")
+    parser.add_argument(
+        "--retention-days",
+        type=int,
+        default=settings.SOFT_DELETE_RETENTION_DAYS,
+        help="Delete soft-deleted records older than this many days.",
+    )
+    return parser.parse_args()
 
 
 async def purge_deleted_users(db, user_ids):
@@ -104,7 +115,9 @@ async def purge_deleted_organizations(db, org_ids):
 
 
 async def main() -> None:
-    cutoff = datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)
+    args = _parse_args()
+    retention_days = max(0, int(args.retention_days))
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
     async with async_session_factory() as db:
         deleted_org_rows = await db.execute(
             select(Organization.id).where(
@@ -141,7 +154,7 @@ async def main() -> None:
 
     print(
         "Soft delete purge complete. "
-        f"retention_days={RETENTION_DAYS} purged_applications={purged_apps} "
+        f"retention_days={retention_days} purged_applications={purged_apps} "
         f"purged_users={purged_users} purged_organizations={purged_orgs}"
     )
 

@@ -52,6 +52,20 @@ def verification_email_html(verify_url: str) -> str:
     )
 
 
+def verification_code_email_html(code: str, expiry_minutes: int) -> str:
+    return _layout(
+        "Verify your email",
+        f"""
+        <p style="margin:0 0 12px 0;">Use this one-time verification code to confirm your email address and finish activating your self-serve organization account.</p>
+        <div style="margin:0 0 16px 0;padding:16px;border:1px solid #dbeafe;border-radius:10px;background:#eff6ff;text-align:center;">
+          <p style="margin:0 0 6px 0;font-size:13px;color:#1e3a8a;font-weight:700;">Verification code</p>
+          <p style="margin:0;font-size:28px;letter-spacing:6px;font-weight:800;color:#0f172a;">{code}</p>
+        </div>
+        <p style="margin:0;font-size:13px;color:#64748b;">This code expires in {expiry_minutes} minutes.</p>
+        """,
+    )
+
+
 def password_reset_email_html(reset_url: str) -> str:
     return _layout(
         "Reset your password",

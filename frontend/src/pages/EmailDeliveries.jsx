@@ -14,6 +14,7 @@ export default function EmailDeliveries() {
   const [eventKey, setEventKey] = useState('');
   const [toEmail, setToEmail] = useState('');
   const [processing, setProcessing] = useState(false);
+  const [processSummary, setProcessSummary] = useState(null);
 
   const fetchRows = async (loadMore = false) => {
     if (!orgId && !isSuperAdmin) return;
@@ -44,7 +45,8 @@ export default function EmailDeliveries() {
   const processQueue = async () => {
     setProcessing(true);
     try {
-      await api.post('/api/v1/admin/email-deliveries/process?limit=100');
+      const res = await api.post('/api/v1/admin/email-deliveries/process?limit=100');
+      setProcessSummary(res.data || null);
       await fetchRows(false);
     } finally {
       setProcessing(false);
@@ -84,6 +86,11 @@ export default function EmailDeliveries() {
       />
 
       <div className="section-shell overflow-hidden">
+        {processSummary ? (
+          <div className="border-b border-emerald-200 bg-emerald-50 px-6 py-3 text-sm text-emerald-800">
+            {processSummary.message}
+          </div>
+        ) : null}
         <table className="w-full">
           <thead>
             <tr className="table-header">

@@ -72,16 +72,20 @@ from app.services.token_service import (
 )
 from app.services.application_service import get_application_by_client_id
 from app.services.audit_service import write_audit_event
-from app.services.email_service import send_password_reset_email
+from app.services.email_service import send_password_reset_email, send_verification_code_email
 from app.services.organization_service import (
     build_self_serve_settings,
     create_organization_with_admin,
     get_org_access_tier,
+    get_organization,
     get_organization_by_slug,
 )
 from app.schemas.signup import (
     OrganizationSelfServeSignupRequest,
     OrganizationSelfServeSignupResponse,
+    OrganizationSelfServeVerifyEmailOtpRequest,
+    OrganizationSelfServeVerifyEmailOtpResponse,
+    OrganizationSelfServeResendEmailOtpRequest,
     PublicSignupOrganizationSummary,
     PublicSignupAdminSummary,
 )
@@ -96,6 +100,64 @@ from app.utils.crypto_utils import (
 from sqlalchemy import select, update
 
 router = APIRouter(prefix="/api/v1", tags=["auth"])
+SELF_SERVE_SIGNUP_VERIFICATION_PREFIX = "self_serve_signup_verification"
+
+
+def _generate_email_verification_code() -> str:
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def _self_serve_signup_verification_key(challenge_token: str) -> str:
+    return f"{SELF_SERVE_SIGNUP_VERIFICATION_PREFIX}:{challenge_token}"
+
+
+async def _create_self_serve_signup_verification_challenge(
+    redis: aioredis.Redis,
+    *,
+    organization_name: str,
+    organization_slug: str,
+    admin_email: str,
+    admin_password: str,
+    admin_first_name: Optional[str],
+    admin_last_name: Optional[str],
+) -> tuple[str, str]:
+    challenge_token = secrets.token_urlsafe(24)
+    verification_code = _generate_email_verification_code()
+    payload = {
+        "organization_name": organization_name,
+        "organization_slug": organization_slug,
+        "admin_email": admin_email,
+        "admin_password": admin_password,
+        "admin_first_name": admin_first_name,
+        "admin_last_name": admin_last_name,
+        "code": verification_code,
+    }
+    await redis.setex(
+        _self_serve_signup_verification_key(challenge_token),
+        settings.EMAIL_VERIFICATION_OTP_TTL_MINUTES * 60,
+        json.dumps(payload),
+    )
+    return challenge_token, verification_code
+
+
+async def _get_self_serve_signup_verification_challenge(
+    redis: aioredis.Redis,
+    challenge_token: str,
+) -> Optional[dict]:
+    raw = await redis.get(_self_serve_signup_verification_key(challenge_token))
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+
+async def _delete_self_serve_signup_verification_challenge(
+    redis: aioredis.Redis,
+    challenge_token: str,
+) -> None:
+    await redis.delete(_self_serve_signup_verification_key(challenge_token))
 
 
 async def invalidate_active_reset_tokens(db: AsyncSession, user_id: UUID) -> None:
@@ -325,8 +387,9 @@ async def _attempt_authorize_with_browser_session(
 async def self_serve_signup_organization(
     body: OrganizationSelfServeSignupRequest,
     db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
 ):
-    """Self-serve public signup: create org + first admin in limited mode."""
+    """Self-serve public signup: stage org + admin creation until email OTP is verified."""
     existing_user = await get_user_by_email(db, body.admin_email)
     if existing_user:
         raise HTTPException(
@@ -362,20 +425,104 @@ async def self_serve_signup_organization(
 
     slug = await _resolve_available_org_slug(db, preferred_slug)
 
-    try:
-        org, admin_user, _ = await create_organization_with_admin(
-            db=db,
+    challenge_token, verification_code = await _create_self_serve_signup_verification_challenge(
+        redis,
+        organization_name=body.organization_name.strip(),
+        organization_slug=slug,
+        admin_email=body.admin_email,
+        admin_password=body.admin_password,
+        admin_first_name=body.admin_first_name,
+        admin_last_name=body.admin_last_name,
+    )
+    await send_verification_code_email(
+        db,
+        body.admin_email,
+        verification_code,
+    )
+
+    return OrganizationSelfServeSignupResponse(
+        message="Your signup is pending email verification. Enter the 6-digit code to create your organization and activate the admin account.",
+        organization=PublicSignupOrganizationSummary(
             name=body.organization_name.strip(),
             slug=slug,
-            admin_email=body.admin_email,
-            admin_password=body.admin_password,
-            admin_first_name=body.admin_first_name,
-            admin_last_name=body.admin_last_name,
-            display_name=body.organization_name.strip(),
+            status="pending_verification",
+            access_tier="limited",
+            verification_status="pending_email_verification",
+        ),
+        admin_user=PublicSignupAdminSummary(
+            email=body.admin_email,
+            first_name=body.admin_first_name,
+            last_name=body.admin_last_name,
+        ),
+        email_verification_required=True,
+        verification_challenge_token=challenge_token,
+        verification_expires_in_seconds=settings.EMAIL_VERIFICATION_OTP_TTL_MINUTES * 60,
+    )
+
+
+@router.post("/signup/organization/verify-email-otp", response_model=OrganizationSelfServeVerifyEmailOtpResponse)
+async def verify_self_serve_signup_email_otp(
+    body: OrganizationSelfServeVerifyEmailOtpRequest,
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    challenge = await _get_self_serve_signup_verification_challenge(redis, body.challenge_token)
+    if not challenge:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "verification_code_expired", "error_description": "The verification code expired. Request a new one."},
+        )
+
+    if str(challenge.get("code") or "") != body.code:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_verification_code", "error_description": "That verification code is incorrect."},
+        )
+
+    existing_user = await get_user_by_email(db, str(challenge["admin_email"]))
+    if existing_user:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "email_already_registered",
+                "error_description": "That admin email is already registered. Start signup again with a different email.",
+            },
+        )
+
+    org_name_taken = await db.execute(
+        select(Organization).where(
+            Organization.name == str(challenge["organization_name"]).strip(),
+            Organization.deleted_at.is_(None),
+        )
+    )
+    if org_name_taken.scalar_one_or_none():
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "organization_name_taken",
+                "error_description": "An organization with this name already exists. Start signup again with a different name.",
+            },
+        )
+
+    slug = await _resolve_available_org_slug(db, str(challenge["organization_slug"]).strip().lower())
+    try:
+        org, user, _ = await create_organization_with_admin(
+            db=db,
+            name=str(challenge["organization_name"]).strip(),
+            slug=slug,
+            admin_email=str(challenge["admin_email"]).strip(),
+            admin_password=str(challenge["admin_password"]),
+            admin_first_name=challenge.get("admin_first_name"),
+            admin_last_name=challenge.get("admin_last_name"),
+            display_name=str(challenge["organization_name"]).strip(),
             org_settings=build_self_serve_settings(),
+            require_password_setup=False,
         )
     except ValueError as exc:
         raise HTTPException(400, detail={"error": "invalid_signup_data", "error_description": str(exc)})
+
+    user.email_verified = True
+    user.updated_at = datetime.now(timezone.utc)
 
     await write_audit_event(
         db=db,
@@ -383,7 +530,7 @@ async def self_serve_signup_organization(
         resource_type="organization",
         resource_id=str(org.id),
         org_id=org.id,
-        actor_id=admin_user.id,
+        actor_id=user.id,
         metadata={
             "org_name": org.name,
             "org_slug": org.slug,
@@ -395,14 +542,15 @@ async def self_serve_signup_organization(
     await send_admin_activity_notification(
         db=db,
         org_id=org.id,
-        actor_user_id=admin_user.id,
+        actor_user_id=user.id,
         title="Self-serve organization created",
-        message=f"{admin_user.email} created organization {org.display_name or org.name} on the free self-serve tier.",
+        message=f"{user.email} created organization {org.display_name or org.name} on the free self-serve tier.",
         event_key="org.self_serve_signup",
     )
+    await _delete_self_serve_signup_verification_challenge(redis, body.challenge_token)
 
-    return OrganizationSelfServeSignupResponse(
-        message="Organization created in free self-serve mode. Sign in as org admin and upgrade to a paid plan whenever you want higher limits and full access.",
+    return OrganizationSelfServeVerifyEmailOtpResponse(
+        message="Email verified successfully. You can now sign in as the organization admin.",
         organization=PublicSignupOrganizationSummary(
             id=org.id,
             name=org.name,
@@ -412,12 +560,51 @@ async def self_serve_signup_organization(
             verification_status=str((org.settings or {}).get("verification_status") or "pending"),
         ),
         admin_user=PublicSignupAdminSummary(
-            id=admin_user.id,
-            email=admin_user.email,
-            first_name=admin_user.first_name,
-            last_name=admin_user.last_name,
+            id=user.id,
+            email=user.email,
+            first_name=user.first_name,
+            last_name=user.last_name,
         ),
     )
+
+
+@router.post("/signup/organization/resend-email-otp")
+async def resend_self_serve_signup_email_otp(
+    body: OrganizationSelfServeResendEmailOtpRequest,
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    challenge = await _get_self_serve_signup_verification_challenge(redis, body.challenge_token)
+    if not challenge:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "verification_code_expired", "error_description": "The verification code expired. Start signup again."},
+        )
+
+    verification_code = _generate_email_verification_code()
+    updated_payload = {
+        "organization_name": challenge["organization_name"],
+        "organization_slug": challenge["organization_slug"],
+        "admin_email": challenge["admin_email"],
+        "admin_password": challenge["admin_password"],
+        "admin_first_name": challenge.get("admin_first_name"),
+        "admin_last_name": challenge.get("admin_last_name"),
+        "code": verification_code,
+    }
+    await redis.setex(
+        _self_serve_signup_verification_key(body.challenge_token),
+        settings.EMAIL_VERIFICATION_OTP_TTL_MINUTES * 60,
+        json.dumps(updated_payload),
+    )
+    await send_verification_code_email(
+        db,
+        str(challenge["admin_email"]),
+        verification_code,
+    )
+    return {
+        "message": "A new verification code has been sent.",
+        "verification_expires_in_seconds": settings.EMAIL_VERIFICATION_OTP_TTL_MINUTES * 60,
+    }
 
 
 # ─── POST /login ─────────────────────────────────────────────────────

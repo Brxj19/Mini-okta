@@ -6,6 +6,8 @@ from uuid import uuid4
 from app.services.organization_service import (
     _build_deleted_organization_name,
     _build_deleted_organization_slug,
+    build_self_serve_settings,
+    create_organization_with_admin,
     slugify_org_name,
     soft_delete_organization,
 )
@@ -13,6 +15,37 @@ from app.schemas.organization import OrganizationCreate
 
 
 class OrganizationServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_create_organization_with_admin_can_skip_password_setup_for_self_serve(self):
+        role = SimpleNamespace(id=uuid4(), name="org:admin")
+        role_result = SimpleNamespace(scalar_one_or_none=lambda: role)
+        fake_db = SimpleNamespace(
+            add=lambda *_args, **_kwargs: None,
+            flush=AsyncMock(),
+            execute=AsyncMock(return_value=role_result),
+        )
+        org = SimpleNamespace(id=uuid4())
+
+        with patch("app.services.organization_service.create_organization", AsyncMock(return_value=org)), \
+             patch("app.services.organization_service.hash_password", return_value="hashed-password"):
+            _, admin_user, raw_password = await create_organization_with_admin(
+                fake_db,
+                name="Self Serve Org",
+                slug="self-serve-org",
+                admin_email="founder@example.com",
+                admin_password="ValidPass123!",
+                require_password_setup=False,
+            )
+
+        self.assertEqual(raw_password, "ValidPass123!")
+        self.assertFalse(admin_user.must_change_password)
+        self.assertIsNone(admin_user.invited_at)
+        self.assertIsNone(admin_user.invitation_expires_at)
+
+    def test_build_self_serve_settings_requires_email_verification(self):
+        payload = build_self_serve_settings()
+
+        self.assertTrue(payload["require_email_verification"])
+
     def test_organization_create_blank_slug_normalizes_to_none(self):
         payload = OrganizationCreate(
             name="SigVerse Academy",

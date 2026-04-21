@@ -1,6 +1,7 @@
 """Send subscription reminders and expiry notices for paid plans."""
 
 import asyncio
+import argparse
 import os
 import sys
 
@@ -13,7 +14,15 @@ from app.models.organization import Organization
 from app.services.billing_service import process_subscription_lifecycle_notifications
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Process subscription reminder and expiry notifications.")
+    parser.add_argument("--renewal-window-days", type=int, default=3, help="Days before period end to send renewal reminders.")
+    parser.add_argument("--cancel-window-days", type=int, default=1, help="Days before period end to send cancel-at-period-end reminders.")
+    return parser.parse_args()
+
+
 async def main() -> None:
+    args = _parse_args()
     async with async_session_factory() as db:
         result = await db.execute(
             select(Organization.id).where(Organization.deleted_at.is_(None))
@@ -31,7 +40,12 @@ async def main() -> None:
                 org = await db.get(Organization, org_id)
                 if not org:
                     continue
-                outcome = await process_subscription_lifecycle_notifications(db, org)
+                outcome = await process_subscription_lifecycle_notifications(
+                    db,
+                    org,
+                    renewal_window_days=args.renewal_window_days,
+                    cancel_window_days=args.cancel_window_days,
+                )
                 renewal_sent += int(outcome["renewal_reminder"])
                 cancel_sent += int(outcome["cancel_reminder"])
                 expired += int(outcome["expired"])

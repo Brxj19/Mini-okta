@@ -477,6 +477,13 @@ cd /Users/as-mac-1293/Desktop/mini-okta-v2.2
 crontab cron.example
 ```
 
+For temporary verification with short intervals, use:
+
+```bash
+cd /Users/as-mac-1293/Desktop/mini-okta-v2.2
+crontab cron.test.example
+```
+
 Or paste these entries manually with `crontab -e`:
 
 ```cron
@@ -490,6 +497,12 @@ What each job does:
 - `send_weekly_summaries.py`: sends weekly summary emails to users who opted in
 - `process_subscription_notifications.py`: sends renewal reminders, cancel-at-period-end reminders, and downgrade expiry notices
 - `purge_soft_deletes.py`: permanently removes soft-deleted users, applications, and organizations older than 90 days
+
+Useful test-mode overrides:
+
+- `python scripts/send_weekly_summaries.py --window-days 1 --force`
+- `python scripts/process_subscription_notifications.py --renewal-window-days 365 --cancel-window-days 365`
+- `python scripts/purge_soft_deletes.py --retention-days 0`
 
 Verify the installed schedule with:
 

@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     SMTP_TIMEOUT_SECONDS: int = 30
     EMAIL_MAX_ATTEMPTS: int = 3
     EMAIL_RETRY_BACKOFF_SECONDS: int = 60
+    EMAIL_VERIFICATION_OTP_TTL_MINUTES: int = 10
 
     # Password and onboarding policy
     PASSWORD_MAX_AGE_DAYS: int = 90
@@ -56,6 +57,7 @@ class Settings(BaseSettings):
     SUBSCRIPTION_CYCLE_DAYS: int = 30
     RAZORPAY_KEY_ID: str = ""
     RAZORPAY_KEY_SECRET: str = ""
+    SOFT_DELETE_RETENTION_DAYS: int = 90
 
     model_config = {
         "env_file": ".env",

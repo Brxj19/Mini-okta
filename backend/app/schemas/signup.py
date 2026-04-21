@@ -16,7 +16,7 @@ class OrganizationSelfServeSignupRequest(BaseModel):
 
 
 class PublicSignupOrganizationSummary(BaseModel):
-    id: UUID
+    id: Optional[UUID] = None
     name: str
     slug: str
     status: str
@@ -25,7 +25,7 @@ class PublicSignupOrganizationSummary(BaseModel):
 
 
 class PublicSignupAdminSummary(BaseModel):
-    id: UUID
+    id: Optional[UUID] = None
     email: str
     first_name: Optional[str] = None
     last_name: Optional[str] = None
@@ -35,3 +35,21 @@ class OrganizationSelfServeSignupResponse(BaseModel):
     message: str
     organization: PublicSignupOrganizationSummary
     admin_user: PublicSignupAdminSummary
+    email_verification_required: bool = True
+    verification_challenge_token: str
+    verification_expires_in_seconds: int
+
+
+class OrganizationSelfServeVerifyEmailOtpRequest(BaseModel):
+    challenge_token: str = Field(..., min_length=12, max_length=255)
+    code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
+class OrganizationSelfServeVerifyEmailOtpResponse(BaseModel):
+    message: str
+    organization: PublicSignupOrganizationSummary
+    admin_user: PublicSignupAdminSummary
+
+
+class OrganizationSelfServeResendEmailOtpRequest(BaseModel):
+    challenge_token: str = Field(..., min_length=12, max_length=255)
