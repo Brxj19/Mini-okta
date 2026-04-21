@@ -45,7 +45,10 @@ export default function GroupMembershipTable({ groupId, allowManageMembers = tru
       const res = await api.get(`/api/v1/organizations/${orgId}/users?filter[email_contains]=${q}&limit=10`);
       const existing = new Set(members.map(m => m.id));
       setSearchResults((res.data.data || []).filter(u => !existing.has(u.id)));
-    } catch { setSearchResults([]); }
+    } catch (err) {
+      setSearchResults([]);
+      setError(err.response?.data?.detail?.error_description || 'Unable to search users for this group.');
+    }
   };
 
   const addMember = async (userId) => {

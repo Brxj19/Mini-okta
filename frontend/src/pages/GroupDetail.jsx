@@ -106,12 +106,13 @@ export default function GroupDetail() {
   const groupIsProtected = roles.some((role) => role.name === 'org:admin');
   const actorCanManageProtectedGroup = isSuperAdmin || hasRole(claims, 'org:admin');
   const canManageMembers = hasPermission(claims, 'group:member:add') && hasPermission(claims, 'group:member:remove');
-  const canAssignRoles = hasPermission(claims, 'role:update');
+  const canAssignRoles = hasPermission(claims, 'group:role:assign');
+  const canRemoveRoles = hasPermission(claims, 'group:role:update');
   const canDeleteGroup = hasPermission(claims, 'group:delete');
   const canUpdateGroup = hasPermission(claims, 'group:update');
   const blockProtectedGroupActions = groupIsProtected && !actorCanManageProtectedGroup;
   const canEditGroup = canUpdateGroup && !blockProtectedGroupActions;
-  const canManageGroupRoles = canAssignRoles && !blockProtectedGroupActions;
+  const canManageGroupRoles = (canAssignRoles || canRemoveRoles) && !blockProtectedGroupActions;
   const canDeleteCurrentGroup = canDeleteGroup && !blockProtectedGroupActions;
 
   return (
@@ -247,7 +248,7 @@ export default function GroupDetail() {
                   <RoleBadge role={r.name} />
                   <p className="mt-1 text-xs text-slate-500">{r.description}</p>
                 </div>
-                {canAssignRoles ? (
+                {canRemoveRoles ? (
                   <button onClick={() => setConfirmState({ type: 'removeRole', role: r })} disabled={!canManageGroupRoles} className="text-sm text-red-700 hover:text-red-800 disabled:cursor-not-allowed disabled:text-slate-400">Remove</button>
                 ) : null}
               </div>

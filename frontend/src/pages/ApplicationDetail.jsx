@@ -51,6 +51,8 @@ export default function ApplicationDetail() {
 
   const canUpdateApp = isSuperAdmin || userHasPermission(claims, 'app:update');
   const canDeleteApp = isSuperAdmin || userHasPermission(claims, 'app:delete');
+  const canAssignAppGroups = isSuperAdmin || userHasPermission(claims, 'app:group:assign');
+  const canUpdateAppGroups = isSuperAdmin || userHasPermission(claims, 'app:group:update');
 
   const denyAction = (message = 'You do not have permission to perform this action.') => {
     setPermissionMessage(message);
@@ -139,7 +141,7 @@ export default function ApplicationDetail() {
   };
 
   const assignGroup = async () => {
-    if (!canUpdateApp) {
+    if (!canAssignAppGroups) {
       denyAction('You do not have permission to change application group assignments.');
       return;
     }
@@ -152,7 +154,7 @@ export default function ApplicationDetail() {
   };
 
   const removeGroup = async (groupId) => {
-    if (!canUpdateApp) {
+    if (!canUpdateAppGroups) {
       denyAction('You do not have permission to change application group assignments.');
       return;
     }
@@ -674,7 +676,7 @@ export default function ApplicationDetail() {
             Regular users can sign in only if they belong to one of these groups. Organization admins can always sign in. App role behavior is controlled by the explicit role-mapping policy in configuration.
           </div>
           <div className="flex gap-3 mb-5">
-            <select value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)} className="input-field" disabled={!canUpdateApp}>
+            <select value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)} className="input-field" disabled={!canAssignAppGroups}>
               <option value="">Select group to assign...</option>
               {availableGroups.map(group => (
                 <option key={group.id} value={group.id}>
@@ -682,7 +684,7 @@ export default function ApplicationDetail() {
                 </option>
               ))}
             </select>
-            <button onClick={assignGroup} disabled={canUpdateApp && !selectedGroup} className={`btn-primary ${canUpdateApp ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canUpdateApp}>
+            <button onClick={assignGroup} disabled={!canAssignAppGroups || !selectedGroup} className={`btn-primary ${canAssignAppGroups ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canAssignAppGroups}>
               <PlusIcon className="h-4 w-4" />
               Assign
             </button>
@@ -695,7 +697,7 @@ export default function ApplicationDetail() {
                   <p className="text-sm font-semibold text-slate-900">{group.name}</p>
                   <p className="mt-1 text-xs text-slate-500">{group.description || 'No description'}</p>
                 </div>
-                <button onClick={() => setConfirmState({ type: 'remove-group', group })} className={`text-sm font-medium text-red-700 hover:text-red-800 ${canUpdateApp ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canUpdateApp} disabled={!canUpdateApp}>Remove</button>
+                <button onClick={() => setConfirmState({ type: 'remove-group', group })} className={`text-sm font-medium text-red-700 hover:text-red-800 ${canUpdateAppGroups ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canUpdateAppGroups} disabled={!canUpdateAppGroups}>Remove</button>
               </div>
             ))}
             {groups.length === 0 && <p className="text-sm text-slate-500">No groups assigned to this application.</p>}

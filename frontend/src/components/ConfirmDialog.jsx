@@ -12,7 +12,7 @@ export default function ConfirmDialog({
   onConfirm,
   onClose,
 }) {
-  const confirmClass = tone === 'danger' ? 'btn-danger' : 'btn-primary';
+  const confirmClass = 'btn-primary';
 
   return (
     <Modal open={open} title={title} description={description} onClose={busy ? undefined : onClose}>

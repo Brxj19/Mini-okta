@@ -28,6 +28,8 @@ function getLaunchUrl(app) {
 export default function Applications() {
   const { orgId, claims, isSuperAdmin } = useAuth();
   const [apps, setApps] = useState([]);
+  const [totalApps, setTotalApps] = useState(0);
+  const [planStatus, setPlanStatus] = useState(null);
   const [cursor, setCursor] = useState(null);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -35,6 +37,8 @@ export default function Applications() {
   const [permissionMessage, setPermissionMessage] = useState('');
   const canCreateApplications = isSuperAdmin || userHasPermission(claims, 'app:create');
   const canLaunchApplications = isSuperAdmin || userHasPermission(claims, 'app:update');
+  const maxApps = Number(planStatus?.limits?.max_apps || 0);
+  const appLimitReached = !!maxApps && totalApps >= maxApps;
 
   const launchApplication = (launchUrl, appName) => {
     if (!canLaunchApplications) {
@@ -61,6 +65,7 @@ export default function Applications() {
       const data = res.data?.data || [];
       const pagination = res.data?.pagination || {};
       setApps((prev) => loadMore ? [...prev, ...data] : data);
+      setTotalApps(Number(pagination.total || 0));
       setCursor(pagination.next_cursor || null);
       setHasMore(!!pagination.has_more);
     } finally {
@@ -70,6 +75,12 @@ export default function Applications() {
   };
 
   useEffect(() => { fetchApps(false); }, [orgId]);
+  useEffect(() => {
+    if (!orgId) return;
+    api.get(`/api/v1/organizations/${orgId}/plan-status`)
+      .then((res) => setPlanStatus(res.data || null))
+      .catch(() => setPlanStatus(null));
+  }, [orgId]);
 
   if (loading) return <div className="py-20 text-center text-sm text-gray-500">Loading applications...</div>;
 
@@ -80,7 +91,7 @@ export default function Applications() {
         title="Application Directory"
         description="Register and manage SSO connections. Launch and inspect each application in one click."
         actions={
-          canCreateApplications ? (
+          canCreateApplications && !appLimitReached ? (
             <Link className="btn-primary" to="/applications/new">
               <PlusIcon className="h-4 w-4" />
               Add application
@@ -88,7 +99,11 @@ export default function Applications() {
           ) : (
             <button
               type="button"
-              onClick={() => setPermissionMessage('You do not have permission to create applications.')}
+              onClick={() => setPermissionMessage(
+                appLimitReached
+                  ? `This organization has reached its application limit of ${maxApps} for the current plan.`
+                  : 'You do not have permission to create applications.'
+              )}
               className="btn-primary cursor-not-allowed justify-center opacity-55"
               aria-disabled="true"
             >

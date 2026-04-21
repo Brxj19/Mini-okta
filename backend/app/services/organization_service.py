@@ -35,8 +35,10 @@ SYSTEM_ROLES = [
             "org:read", "org:update",
             "user:create", "user:read", "user:update", "user:delete", "user:reset_password",
             "app:create", "app:read", "app:update", "app:delete",
+            "app:group:assign", "app:group:update",
             "group:create", "group:read", "group:update", "group:delete",
             "group:member:add", "group:member:remove",
+            "group:role:assign", "group:role:update",
             "role:create", "role:read", "role:update",
             "audit:read",
         ],
@@ -44,7 +46,7 @@ SYSTEM_ROLES = [
     {
         "name": "app:manager",
         "description": "Application manager",
-        "permissions": ["app:create", "app:read", "app:update", "app:delete"],
+        "permissions": ["app:create", "app:read", "app:update", "app:delete", "group:read", "app:group:assign", "app:group:update"],
     },
     {
         "name": "user:manager",
@@ -56,7 +58,8 @@ SYSTEM_ROLES = [
         "description": "Group manager",
         "permissions": [
             "group:create", "group:read", "group:update", "group:delete",
-            "group:member:add", "group:member:remove",
+            "group:member:add", "group:member:remove", "user:read",
+            "role:read", "group:role:assign", "group:role:update",
         ],
     },
     {

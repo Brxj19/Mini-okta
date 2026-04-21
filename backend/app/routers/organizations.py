@@ -47,6 +47,21 @@ router = APIRouter(prefix="/api/v1/admin/organizations", tags=["organizations"])
 org_router = APIRouter(prefix="/api/v1/organizations/{org_id}", tags=["organizations"])
 
 
+def _is_paid_self_serve_organization(org: Organization) -> bool:
+    settings = org.settings if isinstance(org.settings, dict) else {}
+    if str(settings.get("signup_origin") or "") != "self_serve":
+        return False
+
+    billing = settings.get("billing") if isinstance(settings.get("billing"), dict) else {}
+    current_plan_code = str(billing.get("current_plan_code") or "").strip().lower()
+    if current_plan_code in {"go", "plus", "pro"}:
+        return True
+
+    subscription = billing.get("subscription") if isinstance(billing.get("subscription"), dict) else {}
+    subscription_plan_code = str(subscription.get("plan_code") or "").strip().lower()
+    return subscription_plan_code in {"go", "plus", "pro"}
+
+
 def _require_org_admin(current_user: dict) -> None:
     if current_user.get("is_super_admin"):
         return
@@ -337,13 +352,23 @@ async def set_organization_limited(
     db: AsyncSession = Depends(get_db),
 ):
     """Set an organization back to limited self-serve mode."""
+    existing_org = await get_organization(db, org_id)
+    if not existing_org:
+        raise HTTPException(404, detail={"error": "not_found", "error_description": "Organization not found"})
+
+    if _is_paid_self_serve_organization(existing_org):
+        raise HTTPException(
+            403,
+            detail={
+                "error": "paid_plan_downgrade_forbidden",
+                "error_description": "Paid self-serve organizations cannot be moved to the limited tier by a super admin.",
+            },
+        )
+
     try:
         org = await set_organization_access_tier(db, org_id, "limited")
     except ValueError as exc:
         raise HTTPException(400, detail={"error": "invalid_request", "error_description": str(exc)})
-
-    if not org:
-        raise HTTPException(404, detail={"error": "not_found", "error_description": "Organization not found"})
 
     await write_audit_event(
         db,

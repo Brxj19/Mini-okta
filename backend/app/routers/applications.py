@@ -51,7 +51,7 @@ async def create_app(
     """Create an OAuth application. Returns client_secret ONCE for web/m2m types."""
     org_result = await db.execute(select(Organization).where(Organization.id == org_id))
     org = org_result.scalar_one_or_none()
-    if org and is_org_limited(org.settings):
+    if org:
         limits = get_org_limits(org.settings)
         max_apps = limits.get("max_apps")
         if max_apps:
@@ -62,14 +62,20 @@ async def create_app(
             )
             current_apps = current_apps_result.scalar() or 0
             if current_apps >= max_apps:
+                description = (
+                    f"Self-serve organizations can have up to {max_apps} applications until verified by a super admin."
+                    if is_org_limited(org.settings)
+                    else f"This organization can have up to {max_apps} applications on its current plan."
+                )
                 raise HTTPException(
                     status_code=403,
                     detail={
-                        "error": "self_serve_limit_reached",
-                        "error_description": f"Self-serve organizations can have up to {max_apps} applications until verified by a super admin.",
+                        "error": "application_limit_reached",
+                        "error_description": description,
                     },
                 )
 
+    if org and is_org_limited(org.settings):
         policy_error = validate_limited_org_app_policy(
             app_type=body.app_type,
             redirect_uris=body.redirect_uris or [],
@@ -302,7 +308,7 @@ async def assign_application_groups_endpoint(
     org_id: UUID,
     app_id: UUID,
     body: ApplicationGroupAssignRequest,
-    current_user: dict = Depends(require_permission("app:update")),
+    current_user: dict = Depends(require_permission("app:group:assign")),
     db: AsyncSession = Depends(get_db),
 ):
     """Assign organization groups to an application."""
@@ -343,7 +349,7 @@ async def remove_application_group_endpoint(
     org_id: UUID,
     app_id: UUID,
     group_id: UUID,
-    current_user: dict = Depends(require_permission("app:update")),
+    current_user: dict = Depends(require_permission("app:group:update")),
     db: AsyncSession = Depends(get_db),
 ):
     """Remove a group assignment from an application."""

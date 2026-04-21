@@ -40,6 +40,8 @@ export default function OrganizationDetail() {
   const accessTier = org?.settings?.access_tier || 'verified_enterprise';
   const verificationStatus = org?.settings?.verification_status || (accessTier === 'limited' ? 'pending' : 'approved');
   const upgradeRequestStatus = org?.settings?.upgrade_request?.status || null;
+  const isPaidSelfServeOrg = org?.settings?.signup_origin === 'self_serve'
+    && ['go', 'plus', 'pro'].includes(String(org?.settings?.billing?.current_plan_code || '').toLowerCase());
 
   useEffect(() => {
     if (!isSuperAdmin) {
@@ -127,9 +129,14 @@ export default function OrganizationDetail() {
   };
 
   const handleSetLimited = async () => {
-    const res = await api.post(`/api/v1/admin/organizations/${id}/set-limited`);
-    setOrg(res.data);
-    setSuccess('Organization moved to limited tier.');
+    setError('');
+    try {
+      const res = await api.post(`/api/v1/admin/organizations/${id}/set-limited`);
+      setOrg(res.data);
+      setSuccess('Organization moved to limited tier.');
+    } catch (err) {
+      setError(err.response?.data?.detail?.error_description || 'Unable to move this organization to the limited tier.');
+    }
   };
 
   const handleApproveUpgradeRequest = async () => {
@@ -171,7 +178,12 @@ export default function OrganizationDetail() {
               </button>
             )}
             {accessTier === 'verified_enterprise' && org.status === 'active' && (
-              <button onClick={handleSetLimited} className="btn-secondary">
+              <button
+                onClick={handleSetLimited}
+                className={`btn-secondary ${isPaidSelfServeOrg ? 'cursor-not-allowed opacity-55' : ''}`}
+                disabled={isPaidSelfServeOrg}
+                title={isPaidSelfServeOrg ? 'Paid self-serve organizations cannot be moved to the limited tier.' : 'Set limited'}
+              >
                 Set Limited
               </button>
             )}

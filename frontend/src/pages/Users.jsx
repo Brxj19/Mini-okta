@@ -14,6 +14,9 @@ import { hasPermission as userHasPermission } from '../utils/permissions';
 export default function Users() {
   const { orgId, claims } = useAuth();
   const [users, setUsers] = useState([]);
+  const [totalUsers, setTotalUsers] = useState(0);
+  const [planStatus, setPlanStatus] = useState(null);
+  const [message, setMessage] = useState('');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [cursor, setCursor] = useState(null);
@@ -23,6 +26,8 @@ export default function Users() {
   const debouncedSearch = useDebouncedValue(search, 300);
   const canCreateUsers = userHasPermission(claims, 'user:create');
   const canUpdateUsers = userHasPermission(claims, 'user:update');
+  const maxUsers = Number(planStatus?.limits?.max_users || 0);
+  const userLimitReached = !!maxUsers && totalUsers >= maxUsers;
 
   const fetchUsers = async (loadMore = false) => {
     if (!orgId) return;
@@ -40,6 +45,7 @@ export default function Users() {
       const data = res.data?.data || [];
       const pagination = res.data?.pagination || {};
       setUsers((prev) => loadMore ? [...prev, ...data] : data);
+      setTotalUsers(Number(pagination.total || 0));
       setCursor(pagination.next_cursor || null);
       setHasMore(!!pagination.has_more);
     } finally {
@@ -51,6 +57,13 @@ export default function Users() {
   useEffect(() => {
     fetchUsers(false);
   }, [orgId, debouncedSearch, status]);
+
+  useEffect(() => {
+    if (!orgId) return;
+    api.get(`/api/v1/organizations/${orgId}/plan-status`)
+      .then((res) => setPlanStatus(res.data || null))
+      .catch(() => setPlanStatus(null));
+  }, [orgId]);
 
   const rows = users.map((user) => (
     <tr key={user.id} className="table-row">
@@ -89,19 +102,34 @@ export default function Users() {
         title="User Directory"
         description="Create, update, and monitor identities. Most actions are reachable within one click from this table."
         actions={
-          canCreateUsers ? (
+          canCreateUsers && !userLimitReached ? (
             <Link to="/users/new" className="btn-primary">
               <PlusIcon className="h-4 w-4" />
               Add user
             </Link>
           ) : (
-            <button type="button" className="btn-primary cursor-not-allowed opacity-55" disabled>
+            <button
+              type="button"
+              className="btn-primary cursor-not-allowed opacity-55"
+              aria-disabled="true"
+              onClick={() => setMessage(
+                userLimitReached
+                  ? `This organization has reached its user limit of ${maxUsers} for the current plan.`
+                  : 'You do not have permission to create users.'
+              )}
+            >
               <PlusIcon className="h-4 w-4" />
               Add user
             </button>
           )
         }
       />
+
+      {message ? (
+        <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {message}
+        </div>
+      ) : null}
 
       <div className="mb-5 flex flex-col gap-3 sm:flex-row">
         <div className="relative max-w-md flex-1">

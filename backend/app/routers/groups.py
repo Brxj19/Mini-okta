@@ -280,7 +280,7 @@ async def assign_roles_endpoint(
     org_id: UUID,
     group_id: UUID,
     body: GroupRoleAssign,
-    current_user: dict = Depends(require_permission("role:update")),
+    current_user: dict = Depends(require_permission("group:role:assign")),
     db: AsyncSession = Depends(get_db),
 ):
     """Assign roles to a group."""
@@ -333,7 +333,7 @@ async def remove_role_endpoint(
     org_id: UUID,
     group_id: UUID,
     role_id: UUID,
-    current_user: dict = Depends(require_permission("role:update")),
+    current_user: dict = Depends(require_permission("group:role:update")),
     db: AsyncSession = Depends(get_db),
 ):
     """Remove a role from a group."""

@@ -151,7 +151,7 @@ async def create_user_endpoint(
 
     org_result = await db.execute(select(Organization).where(Organization.id == org_id))
     org = org_result.scalar_one_or_none()
-    if org and is_org_limited(org.settings):
+    if org:
         limits = get_org_limits(org.settings)
         max_users = limits.get("max_users")
         if max_users:
@@ -162,11 +162,16 @@ async def create_user_endpoint(
             )
             current_users = current_users_result.scalar() or 0
             if current_users >= max_users:
+                description = (
+                    f"Self-serve organizations can have up to {max_users} users until verified by a super admin."
+                    if is_org_limited(org.settings)
+                    else f"This organization can have up to {max_users} users on its current plan."
+                )
                 raise HTTPException(
                     status_code=403,
                     detail={
-                        "error": "self_serve_limit_reached",
-                        "error_description": f"Self-serve organizations can have up to {max_users} users until verified by a super admin.",
+                        "error": "user_limit_reached",
+                        "error_description": description,
                     },
                 )
 

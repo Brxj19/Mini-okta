@@ -2,8 +2,8 @@ import React from 'react';
 
 const ALL_PERMISSIONS = {
   'User': ['user:create', 'user:read', 'user:update', 'user:delete', 'user:reset_password'],
-  'Application': ['app:create', 'app:read', 'app:update', 'app:delete'],
-  'Group': ['group:create', 'group:read', 'group:update', 'group:delete', 'group:member:add', 'group:member:remove'],
+  'Application': ['app:create', 'app:read', 'app:update', 'app:delete', 'app:group:assign', 'app:group:update'],
+  'Group': ['group:create', 'group:read', 'group:update', 'group:delete', 'group:member:add', 'group:member:remove', 'group:role:assign', 'group:role:update'],
   'Organization': ['org:read', 'org:update'],
   'Role': ['role:create', 'role:read', 'role:update'],
   'Audit': ['audit:read'],
