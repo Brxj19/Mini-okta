@@ -134,6 +134,7 @@ function readSessionFromRequest(req, { secret, cookieName = 'app_session' }) {
 async function exchangeAuthorizationCode({
   issuerUrl,
   clientId,
+  clientSecret,
   redirectUri,
   code,
   codeVerifier,
@@ -143,6 +144,7 @@ async function exchangeAuthorizationCode({
   formData.set('code', code);
   formData.set('redirect_uri', redirectUri);
   formData.set('client_id', clientId);
+  if (clientSecret) formData.set('client_secret', clientSecret);
   if (codeVerifier) formData.set('code_verifier', codeVerifier);
 
   const response = await fetch(`${issuerUrl}/api/v1/token`, {
@@ -174,12 +176,14 @@ async function fetchUserInfo({ issuerUrl, accessToken }) {
 async function refreshAuthorizationTokens({
   issuerUrl,
   clientId,
+  clientSecret,
   refreshToken,
 }) {
   const formData = new URLSearchParams();
   formData.set('grant_type', 'refresh_token');
   formData.set('refresh_token', refreshToken);
   formData.set('client_id', clientId);
+  if (clientSecret) formData.set('client_secret', clientSecret);
 
   const response = await fetch(`${issuerUrl}/api/v1/token`, {
     method: 'POST',
@@ -208,6 +212,7 @@ async function maybeRefreshIdpSession({
   session,
   issuerUrl,
   clientId,
+  clientSecret,
   skewSeconds = 60,
 }) {
   if (!session?.idp?.refreshToken) {
@@ -221,6 +226,7 @@ async function maybeRefreshIdpSession({
   const tokenSet = await refreshAuthorizationTokens({
     issuerUrl,
     clientId,
+    clientSecret,
     refreshToken: session.idp.refreshToken,
   });
 

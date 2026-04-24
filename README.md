@@ -152,7 +152,7 @@ npm run dev
 ```
 
 Use seeded app clients:
-- HR: `client_id=hr-portal-client-id`, redirect `http://localhost:4000/callback`
+- HR: `client_id=hr-portal-client-id`, redirect `http://localhost:4003/auth/callback`
 - Project Tracker: `client_id=project-tracker-client-id`, redirect `http://localhost:4001/callback`
 
 ---

@@ -2,17 +2,7 @@ import React, { useEffect, useState } from 'react';
 import PageHeader from '../components/PageHeader';
 import { ApplicationsIcon } from '../components/Icons';
 import api from '../api/client';
-
-function getLaunchUrl(app) {
-  const firstRedirect = app?.redirect_uris?.[0];
-  if (!firstRedirect) return null;
-  try {
-    const parsed = new URL(firstRedirect);
-    return `${parsed.origin}/`;
-  } catch {
-    return null;
-  }
-}
+import { getApplicationLaunchUrl } from '../utils/applicationLaunch';
 
 export default function MyApps() {
   const [apps, setApps] = useState([]);
@@ -58,7 +48,7 @@ export default function MyApps() {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {apps.map((app) => {
-            const launchUrl = getLaunchUrl(app);
+            const launchUrl = getApplicationLaunchUrl(app);
             return (
               <article key={app.id} className="surface p-5 transition-all hover:-translate-y-px hover:border-gray-300 hover:shadow-md">
                 <div className="mb-4 flex items-start gap-3">

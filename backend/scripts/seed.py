@@ -193,7 +193,7 @@ async def seed():
                 client_id=hr_portal_client_id,
                 client_secret=hash_password("hr-portal-secret"),
                 app_type="web",
-                redirect_uris=["http://localhost:4000/callback"],
+                redirect_uris=["http://localhost:4003/auth/callback"],
                 post_logout_redirect_uris=["http://localhost:4000", "http://localhost:4000/logged-out"],
                 allowed_scopes=["openid", "profile", "email"],
                 id_token_lifetime=3600,

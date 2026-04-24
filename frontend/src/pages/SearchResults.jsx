@@ -6,6 +6,7 @@ import PageHeader from '../components/PageHeader';
 import UserAvatar from '../components/UserAvatar';
 import { getDisplayName } from '../utils/profile';
 import { hasPermission, hasRole } from '../utils/permissions';
+import { getApplicationLaunchUrl } from '../utils/applicationLaunch';
 
 function normalize(value) {
   return String(value || '').toLowerCase();
@@ -13,17 +14,6 @@ function normalize(value) {
 
 function includesQuery(value, query) {
   return normalize(value).includes(normalize(query));
-}
-
-function getLaunchUrl(app) {
-  const firstRedirect = app?.redirect_uris?.[0];
-  if (!firstRedirect) return null;
-  try {
-    const parsed = new URL(firstRedirect);
-    return `${parsed.origin}/`;
-  } catch {
-    return null;
-  }
 }
 
 export default function SearchResults() {
@@ -226,7 +216,7 @@ export default function SearchResults() {
               </div>
               <div className="divide-y divide-gray-200">
                 {results.myApps.length ? results.myApps.map((app) => {
-                  const launchUrl = getLaunchUrl(app);
+                  const launchUrl = getApplicationLaunchUrl(app);
                   const content = (
                     <>
                       <p className="text-sm font-medium text-gray-900">{app.name}</p>

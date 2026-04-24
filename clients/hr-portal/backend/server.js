@@ -1,27 +1,55 @@
+const crypto = require('crypto');
+const fs = require('fs');
 const http = require('http');
+const path = require('path');
 const { URL } = require('url');
 const {
-  buildIdpSessionState,
   buildClearSessionCookie,
   buildIdpLogoutUrl,
   buildSessionCookie,
-  createSessionToken,
   exchangeAuthorizationCode,
   fetchUserInfo,
+  getJwtExpiry,
   maybeRefreshIdpSession,
-  readSessionFromRequest,
+  refreshAuthorizationTokens,
 } = require('../../shared/sessionAuth');
+
+function loadEnvFile(filePath) {
+  if (!fs.existsSync(filePath)) return;
+  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const separatorIndex = line.indexOf('=');
+    if (separatorIndex === -1) continue;
+    const key = line.slice(0, separatorIndex).trim();
+    if (!key || Object.prototype.hasOwnProperty.call(process.env, key)) continue;
+    let value = line.slice(separatorIndex + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    process.env[key] = value;
+  }
+}
+
+loadEnvFile(path.join(__dirname, '.env'));
 
 const PORT = Number(process.env.PORT || 4003);
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:4000';
 const IDP_ISSUER_URL = process.env.IDP_ISSUER_URL || 'http://localhost:8000';
 const IDP_CLIENT_ID = process.env.IDP_CLIENT_ID || 'hr-portal-client-id';
-const IDP_REDIRECT_URI = process.env.IDP_REDIRECT_URI || `${FRONTEND_URL}/callback`;
+const IDP_CLIENT_SECRET = process.env.IDP_CLIENT_SECRET || '';
+const IDP_REDIRECT_URI = process.env.IDP_REDIRECT_URI || `http://localhost:${PORT}/auth/callback`;
 const POST_LOGOUT_REDIRECT_URI = process.env.POST_LOGOUT_REDIRECT_URI || FRONTEND_URL;
 const SESSION_COOKIE_NAME = process.env.APP_SESSION_COOKIE_NAME || 'hr_portal_session';
 const SESSION_SECRET = process.env.APP_SESSION_SECRET || 'hr-portal-dev-session-secret';
 const SESSION_TTL_SECONDS = Number(process.env.APP_SESSION_TTL_SECONDS || 60 * 60 * 8);
 const SECURE_COOKIE = process.env.APP_SESSION_COOKIE_SECURE === 'true';
+const OAUTH_STATE_COOKIE_NAME = process.env.OAUTH_STATE_COOKIE_NAME || 'hr_portal_oauth_state';
+const serverSessions = new Map();
 
 function sendJson(res, status, payload, extraHeaders = {}) {
   res.writeHead(status, {
@@ -41,30 +69,135 @@ function sessionCookieOptions() {
   };
 }
 
-function getRequestBody(req) {
-  return new Promise((resolve, reject) => {
-    let data = '';
-    req.on('data', (chunk) => {
-      data += chunk.toString();
-    });
-    req.on('end', () => {
-      try {
-        resolve(data ? JSON.parse(data) : {});
-      } catch (error) {
-        reject(error);
-      }
-    });
-    req.on('error', reject);
+function serializeCookie(name, value, options = {}) {
+  const parts = [`${encodeURIComponent(name)}=${encodeURIComponent(value)}`];
+  if (options.maxAge !== undefined) parts.push(`Max-Age=${Math.max(0, Math.floor(options.maxAge))}`);
+  if (options.path) parts.push(`Path=${options.path}`);
+  if (options.httpOnly) parts.push('HttpOnly');
+  if (options.sameSite) parts.push(`SameSite=${options.sameSite}`);
+  if (options.secure) parts.push('Secure');
+  return parts.join('; ');
+}
+
+function buildOauthStateCookie(state) {
+  return serializeCookie(OAUTH_STATE_COOKIE_NAME, state, {
+    maxAge: 600,
+    path: '/',
+    httpOnly: true,
+    sameSite: 'Lax',
+    secure: SECURE_COOKIE,
   });
 }
 
-function getSessionUser(req) {
-  const session = readSessionFromRequest(req, {
-    secret: SESSION_SECRET,
-    cookieName: SESSION_COOKIE_NAME,
+function clearOauthStateCookie() {
+  return serializeCookie(OAUTH_STATE_COOKIE_NAME, '', {
+    maxAge: 0,
+    path: '/',
+    httpOnly: true,
+    sameSite: 'Lax',
+    secure: SECURE_COOKIE,
   });
-  return session || null;
 }
+
+function parseCookies(cookieHeader = '') {
+  return String(cookieHeader)
+    .split(';')
+    .map((chunk) => chunk.trim())
+    .filter(Boolean)
+    .reduce((acc, chunk) => {
+      const index = chunk.indexOf('=');
+      if (index === -1) return acc;
+      const key = decodeURIComponent(chunk.slice(0, index).trim());
+      const value = decodeURIComponent(chunk.slice(index + 1).trim());
+      acc[key] = value;
+      return acc;
+    }, {});
+}
+
+function redirectWithError(res, message) {
+  const target = new URL(FRONTEND_URL);
+  target.searchParams.set('error', message);
+  res.writeHead(302, {
+    Location: target.toString(),
+    'Set-Cookie': clearOauthStateCookie(),
+  });
+  res.end();
+}
+
+function buildHrPortalSessionUser(claims) {
+  return {
+    name: claims?.name || claims?.email || 'HR Portal User',
+    email: claims?.email || null,
+    email_verified: !!claims?.email_verified,
+    roles: Array.isArray(claims?.roles) ? claims.roles : [],
+    org_id: claims?.org_id || null,
+  };
+}
+
+function buildHrPortalIdpState(tokenSet = {}, existingState = {}) {
+  const accessToken = tokenSet.access_token || existingState.accessToken || null;
+  return {
+    accessToken,
+    accessTokenExp: getJwtExpiry(accessToken),
+    refreshToken: tokenSet.refresh_token || existingState.refreshToken || null,
+  };
+}
+
+function createServerSession(payload) {
+  const sessionId = crypto.randomUUID();
+  serverSessions.set(sessionId, {
+    ...payload,
+    expiresAt: Date.now() + (SESSION_TTL_SECONDS * 1000),
+  });
+  return sessionId;
+}
+
+function getServerSession(sessionId) {
+  if (!sessionId) return null;
+  const session = serverSessions.get(sessionId);
+  if (!session) return null;
+  if (session.expiresAt <= Date.now()) {
+    serverSessions.delete(sessionId);
+    return null;
+  }
+  return session;
+}
+
+function touchServerSession(sessionId, payload = {}) {
+  const existing = getServerSession(sessionId);
+  if (!existing) return null;
+  const nextSession = {
+    ...existing,
+    ...payload,
+    expiresAt: Date.now() + (SESSION_TTL_SECONDS * 1000),
+  };
+  serverSessions.set(sessionId, nextSession);
+  return nextSession;
+}
+
+function destroyServerSession(sessionId) {
+  if (!sessionId) return;
+  serverSessions.delete(sessionId);
+}
+
+function getRequestSession(req) {
+  const cookies = parseCookies(req.headers.cookie || '');
+  const sessionId = cookies[SESSION_COOKIE_NAME];
+  if (!sessionId) return { sessionId: null, session: null };
+  return {
+    sessionId,
+    session: getServerSession(sessionId),
+  };
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [sessionId, session] of serverSessions.entries()) {
+    if (!session?.expiresAt || session.expiresAt <= now) {
+      serverSessions.delete(sessionId);
+    }
+  }
+}, 60 * 1000).unref();
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
@@ -86,19 +219,55 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (req.method === 'POST' && url.pathname === '/auth/idp/exchange') {
-      const body = await getRequestBody(req);
-      if (!body.code) {
-        sendJson(res, 400, { error: 'Authorization code is required' });
+    if (req.method === 'GET' && url.pathname === '/auth/login') {
+      if (!IDP_CLIENT_SECRET) {
+        redirectWithError(
+          res,
+          'HR Portal is missing IDP_CLIENT_SECRET for confidential web-app login.'
+        );
+        return;
+      }
+
+      const state = crypto.randomUUID();
+      const nonce = crypto.randomUUID();
+      const params = new URLSearchParams({
+        response_type: 'code',
+        client_id: IDP_CLIENT_ID,
+        redirect_uri: IDP_REDIRECT_URI,
+        scope: 'openid profile email',
+        state,
+        nonce,
+      });
+      res.writeHead(302, {
+        Location: `${IDP_ISSUER_URL}/api/v1/authorize?${params.toString()}`,
+        'Set-Cookie': buildOauthStateCookie(state),
+      });
+      res.end();
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/auth/callback') {
+      const code = url.searchParams.get('code');
+      const state = url.searchParams.get('state');
+      const cookies = parseCookies(req.headers.cookie || '');
+      const expectedState = cookies[OAUTH_STATE_COOKIE_NAME];
+
+      if (!code || !state) {
+        redirectWithError(res, 'Authorization code is missing');
+        return;
+      }
+
+      if (!expectedState || expectedState !== state) {
+        redirectWithError(res, 'State mismatch — possible CSRF attack');
         return;
       }
 
       const tokenSet = await exchangeAuthorizationCode({
         issuerUrl: IDP_ISSUER_URL,
         clientId: IDP_CLIENT_ID,
+        clientSecret: IDP_CLIENT_SECRET,
         redirectUri: IDP_REDIRECT_URI,
-        code: body.code,
-        codeVerifier: body.codeVerifier,
+        code,
       });
       const accessToken = tokenSet.access_token || tokenSet.id_token;
       const userInfo = await fetchUserInfo({
@@ -106,34 +275,25 @@ const server = http.createServer(async (req, res) => {
         accessToken,
       });
 
-      const user = {
-        name: userInfo.name || userInfo.email || 'HR Portal User',
-        email: userInfo.email || null,
-        email_verified: !!userInfo.email_verified,
-        roles: Array.isArray(userInfo.roles) ? userInfo.roles : [],
-        org_id: userInfo.org_id || null,
-        claims: userInfo,
-      };
-
-      const sessionToken = createSessionToken(
+      const sessionId = createServerSession(
         {
-          user,
-          idp: buildIdpSessionState(tokenSet),
-        },
-        SESSION_SECRET,
-        SESSION_TTL_SECONDS
+          user: buildHrPortalSessionUser(userInfo),
+          idp: buildHrPortalIdpState(tokenSet),
+        }
       );
-      sendJson(
-        res,
-        200,
-        { user },
-        { 'Set-Cookie': buildSessionCookie(sessionToken, sessionCookieOptions()) }
-      );
+      res.writeHead(302, {
+        Location: FRONTEND_URL,
+        'Set-Cookie': [
+          buildSessionCookie(sessionId, sessionCookieOptions()),
+          clearOauthStateCookie(),
+        ],
+      });
+      res.end();
       return;
     }
 
     if (req.method === 'GET' && url.pathname === '/auth/session') {
-      const session = getSessionUser(req);
+      const { sessionId, session } = getRequestSession(req);
       if (!session?.user) {
         sendJson(res, 401, { error: 'Unauthorized' });
         return;
@@ -145,34 +305,33 @@ const server = http.createServer(async (req, res) => {
           session,
           issuerUrl: IDP_ISSUER_URL,
           clientId: IDP_CLIENT_ID,
+          clientSecret: IDP_CLIENT_SECRET,
         });
+        const claims = await fetchUserInfo({
+          issuerUrl: IDP_ISSUER_URL,
+          accessToken: refreshed.session.idp.accessToken,
+        });
+        nextUser = {
+          ...buildHrPortalSessionUser(claims),
+          claims,
+        };
         if (refreshed.refreshed) {
-          const claims = await fetchUserInfo({
-            issuerUrl: IDP_ISSUER_URL,
-            accessToken: refreshed.session.idp.accessToken,
+          touchServerSession(sessionId, {
+            ...refreshed.session,
+            user: buildHrPortalSessionUser(claims),
+            idp: buildHrPortalIdpState(refreshed.tokenSet || {}, refreshed.session.idp),
           });
-          nextUser = {
-            name: claims.name || claims.email || 'HR Portal User',
-            email: claims.email || null,
-            email_verified: !!claims.email_verified,
-            roles: Array.isArray(claims.roles) ? claims.roles : [],
-            org_id: claims.org_id || null,
-            claims,
-          };
-          const nextSessionToken = createSessionToken(
-            { ...refreshed.session, user: nextUser },
-            SESSION_SECRET,
-            SESSION_TTL_SECONDS
-          );
           sendJson(
             res,
             200,
             { user: nextUser },
-            { 'Set-Cookie': buildSessionCookie(nextSessionToken, sessionCookieOptions()) }
+            { 'Set-Cookie': buildSessionCookie(sessionId, sessionCookieOptions()) }
           );
           return;
         }
+        touchServerSession(sessionId, { user: buildHrPortalSessionUser(claims) });
       } catch (_error) {
+        destroyServerSession(sessionId);
         sendJson(
           res,
           401,
@@ -187,6 +346,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && url.pathname === '/auth/logout') {
+      const { sessionId } = getRequestSession(req);
+      destroyServerSession(sessionId);
       sendJson(
         res,
         204,
@@ -197,13 +358,29 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && url.pathname === '/auth/logout-url') {
-      const session = getSessionUser(req);
+      const { session } = getRequestSession(req);
+      let idTokenHint = null;
+
+      if (session?.idp?.refreshToken) {
+        try {
+          const refreshed = await refreshAuthorizationTokens({
+            issuerUrl: IDP_ISSUER_URL,
+            clientId: IDP_CLIENT_ID,
+            clientSecret: IDP_CLIENT_SECRET,
+            refreshToken: session.idp.refreshToken,
+          });
+          idTokenHint = refreshed.id_token || null;
+        } catch {
+          idTokenHint = null;
+        }
+      }
+
       sendJson(res, 200, {
         logoutUrl: buildIdpLogoutUrl({
           issuerUrl: IDP_ISSUER_URL,
           clientId: IDP_CLIENT_ID,
           postLogoutRedirectUri: POST_LOGOUT_REDIRECT_URI,
-          idTokenHint: session?.idp?.idTokenHint || null,
+          idTokenHint,
         }),
       });
       return;
@@ -211,6 +388,10 @@ const server = http.createServer(async (req, res) => {
 
     sendJson(res, 404, { error: 'Not found' });
   } catch (error) {
+    if (req.method === 'GET' && url.pathname === '/auth/callback') {
+      redirectWithError(res, error.message || 'Unexpected server error');
+      return;
+    }
     sendJson(res, 500, { error: error.message || 'Unexpected server error' });
   }
 });

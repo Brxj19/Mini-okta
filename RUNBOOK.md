@@ -285,9 +285,10 @@ http://localhost:4000
 
 SigAuth application values:
 
-- client type: `spa`
+- client type: `web`
 - client ID: `hr-portal-client-id`
-- redirect URI: `http://localhost:4000/callback`
+- client secret: set this in `clients/hr-portal/backend/.env`
+- redirect URI: `http://localhost:4003/auth/callback`
 - post logout redirect URI: `http://localhost:4000`
 
 ### 11.2 Project Tracker

@@ -1,22 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-const IDP_URL = import.meta.env.VITE_IDP_URL || 'http://localhost:8000';
-const CLIENT_ID = import.meta.env.VITE_IDP_CLIENT_ID || 'hr-portal-client-id';
-const REDIRECT_URI = import.meta.env.VITE_IDP_REDIRECT_URI || `${window.location.origin}/callback`;
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4003';
-
-function generateCodeVerifier() {
-  const arr = new Uint8Array(32);
-  crypto.getRandomValues(arr);
-  return btoa(String.fromCharCode(...arr)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-async function generateCodeChallenge(verifier) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(verifier);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
 
 async function fetchSession() {
   const response = await fetch(`${API_URL}/auth/session`, {
@@ -27,32 +11,6 @@ async function fetchSession() {
   if (!response.ok) {
     throw new Error(data.error || 'Unable to load session');
   }
-  return data.user;
-}
-
-async function exchangeIdpCode({ code, state }) {
-  const savedState = sessionStorage.getItem('oauth_state');
-  const codeVerifier = sessionStorage.getItem('code_verifier');
-
-  if (state !== savedState) {
-    throw new Error('State mismatch — possible CSRF attack');
-  }
-
-  const response = await fetch(`${API_URL}/auth/idp/exchange`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({ code, codeVerifier }),
-  });
-  const data = await response.json();
-
-  sessionStorage.removeItem('oauth_state');
-  sessionStorage.removeItem('code_verifier');
-
-  if (!response.ok || !data.user) {
-    throw new Error(data.error || 'Token exchange failed');
-  }
-
   return data.user;
 }
 
@@ -77,34 +35,17 @@ async function getIdpLogoutUrl() {
 export default function App() {
   const [user, setUser] = useState(null);
   const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
-  const hasHandledCallback = useRef(false);
+  const hasHandledErrorParam = useRef(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
-    const state = params.get('state');
+    const errorMessage = params.get('error');
 
-    if (code && state) {
-      if (hasHandledCallback.current) return;
-      hasHandledCallback.current = true;
-
-      setLoading(true);
-      exchangeIdpCode({ code, state })
-        .then((sessionUser) => {
-          setUser(sessionUser);
-        })
-        .catch((e) => {
-          hasHandledCallback.current = false;
-          setError(e.message);
-        })
-        .finally(() => {
-          setLoading(false);
-          setReady(true);
-          window.history.replaceState({}, '', '/');
-        });
-      return;
+    if (errorMessage && !hasHandledErrorParam.current) {
+      hasHandledErrorParam.current = true;
+      setError(errorMessage);
+      window.history.replaceState({}, '', '/');
     }
 
     fetchSession()
@@ -118,25 +59,7 @@ export default function App() {
   }, []);
 
   const handleLogin = async () => {
-    const codeVerifier = generateCodeVerifier();
-    const codeChallenge = await generateCodeChallenge(codeVerifier);
-    const state = crypto.randomUUID();
-    const nonce = crypto.randomUUID();
-
-    sessionStorage.setItem('oauth_state', state);
-    sessionStorage.setItem('code_verifier', codeVerifier);
-
-    const params = new URLSearchParams({
-      response_type: 'code',
-      client_id: CLIENT_ID,
-      redirect_uri: REDIRECT_URI,
-      scope: 'openid profile email',
-      state, nonce,
-      code_challenge: codeChallenge,
-      code_challenge_method: 'S256',
-    });
-
-    window.location.href = `${IDP_URL}/api/v1/authorize?${params}`;
+    window.location.href = `${API_URL}/auth/login`;
   };
 
   const handleLocalLogout = async () => {
@@ -171,13 +94,11 @@ export default function App() {
       </div>
 
       {error && <div style={{ ...cardStyle, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171', marginBottom: '20px', textAlign: 'center' }}>{error}</div>}
-      {loading && <div style={{ textAlign: 'center', color: '#94a3b8' }}>Finalizing secure session...</div>}
-
       {!user ? (
         <div style={{ ...cardStyle, textAlign: 'center' }}>
           <h2 style={{ fontSize: '22px', marginBottom: '16px' }}>Welcome to HR Portal</h2>
-          <p style={{ color: '#94a3b8', marginBottom: '24px' }}>Sign in through SigAuth. This client now keeps auth state in an HttpOnly session cookie.</p>
-          <button onClick={handleLogin} style={btnStyle}>Sign in with IdP →</button>
+          <p style={{ color: '#94a3b8', marginBottom: '24px' }}>Sign in through SigAuth. HR Portal now uses a backend-owned confidential web-app flow with an HttpOnly session cookie.</p>
+          <button onClick={handleLogin} style={btnStyle}>Sign in with HR Portal →</button>
         </div>
       ) : (
         <div>

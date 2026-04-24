@@ -6,6 +6,7 @@ import PageHeader from '../components/PageHeader';
 import CopyButton from '../components/CopyButton';
 import { ApplicationsIcon, PlusIcon } from '../components/Icons';
 import { hasPermission as userHasPermission } from '../utils/permissions';
+import { getApplicationLaunchUrl } from '../utils/applicationLaunch';
 
 const APP_TYPE_TONE = {
   web: 'badge-blue',
@@ -13,17 +14,6 @@ const APP_TYPE_TONE = {
   native: 'badge-teal',
   m2m: 'badge-orange',
 };
-
-function getLaunchUrl(app) {
-  const firstRedirect = app?.redirect_uris?.[0];
-  if (!firstRedirect) return null;
-  try {
-    const parsed = new URL(firstRedirect);
-    return `${parsed.origin}/`;
-  } catch {
-    return null;
-  }
-}
 
 export default function Applications() {
   const { orgId, claims, isSuperAdmin } = useAuth();
@@ -122,7 +112,7 @@ export default function Applications() {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {apps.map((app) => {
-          const launchUrl = getLaunchUrl(app);
+          const launchUrl = getApplicationLaunchUrl(app);
           return (
           <article key={app.id} className="surface p-5 transition-all hover:-translate-y-px hover:border-indigo-200 hover:shadow-md">
             <div className="mb-4 flex items-start justify-between">
